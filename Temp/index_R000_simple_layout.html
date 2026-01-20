@@ -30,24 +30,27 @@
       from { opacity: 0; transform: scale(0.95); } 
       to { opacity: 1; transform: scale(1); } 
     }
+    @keyframes pulse { 
+      0%, 100% { transform: scale(1); } 
+      50% { transform: scale(1.02); } 
+    }
     
     .animate-fadeIn { animation: fadeIn 0.3s ease-out; }
     .animate-slideIn { animation: slideIn 0.2s ease-out; }
+    .animate-pulse-soft { animation: pulse 2s infinite; }
     
-    .kanji-highlight {
-      font-size: clamp(2rem, 8vw, 4rem);
-      color: #dc2626;
-      font-weight: bold;
+    .kanji-display {
+      font-size: clamp(3rem, 12vw, 6rem);
+      line-height: 1.2;
     }
     
-    .context-text {
-      font-size: clamp(1.1rem, 4vw, 1.5rem);
-      color: #92400e;
+    .supporting-text {
+      font-size: clamp(1rem, 4vw, 1.5rem);
     }
     
-    .sentence-box {
+    .context-box {
       background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-      border: 3px solid #f59e0b;
+      border-left: 4px solid #f59e0b;
     }
   </style>
 </head>
@@ -59,14 +62,6 @@
     const SUPABASE_URL = 'https://ulgrfumbwjovbjzjiems.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVsZ3JmdW1id2pvdmJqemppZW1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNzIyNjcsImV4cCI6MjA4Mjk0ODI2N30.ix5Vh4Y3GXNbQbzVtTD_WSko0L3cr5q_eCnTuDEMh7M';
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    
-    // ===== LEVEL COLORS =====
-    const LEVEL_COLORS = {
-      'N1': { bg: 'bg-rose-500', text: 'text-rose-500' },
-      'N2': { bg: 'bg-amber-500', text: 'text-amber-500' },
-      'N3': { bg: 'bg-emerald-500', text: 'text-emerald-500' },
-      'ALL': { bg: 'bg-slate-600', text: 'text-slate-400' },
-    };
     
     // ===== MARKING CATEGORIES =====
     const MARKING_CATEGORIES = {
@@ -93,22 +88,23 @@
       constructor() {
         this.user = null;
         this.allWords = [];
-        this.markedWords = [];
+        this.markedWords = [];  // Only words with marking > 0
         this.markings = {};
         this.loading = true;
         this.syncing = false;
         
-        // Filter state
-        this.selectedLevel = null;  // N1, N2, N3, or ALL
-        this.selectedWeekDay = null;
-        
         // Study state
+        this.selectedLevel = null;
+        this.selectedWeekDay = null;
         this.currentIndex = 0;
-        this.studyWords = [];
+        this.studyWords = [];  // Filtered words for current study session
         
         // Reveal state
-        this.showContext = false;
-        this.revealStep = 0;  // 0 = nothing, 1 = hiragana, 2 = meaning
+        this.showSupporting = false;
+        this.revealStep = 0;  // 0 = kanji only, 1 = +hiragana, 2 = +meaning
+        
+        // Available weeks for dropdown
+        this.availableWeekDays = [];
         
         this.init();
       }
@@ -156,6 +152,7 @@
           this.syncing = true;
           this.render();
           
+          // Load all vocabulary
           let allData = [];
           let page = 0;
           const pageSize = 1000;
@@ -188,6 +185,7 @@
           
           console.log(`Loaded ${this.allWords.length} vocabulary words`);
           
+          // Load markings
           await this.loadMarkings();
           
           this.syncing = false;
@@ -216,7 +214,16 @@
           data.forEach(row => { this.markings[row.kanji] = row.marking; });
         }
         
+        // Filter to only marked words (marking > 0)
         this.markedWords = this.allWords.filter(w => this.markings[w.kanji] > 0);
+        
+        // Get unique week-day labels from marked words
+        const weekDaySet = new Set(this.markedWords.map(w => w.weekDayLabel));
+        this.availableWeekDays = [...weekDaySet].sort((a, b) => {
+          const [aW, aD] = a.match(/(\d+)週(\d+)日/)?.slice(1).map(Number) || [0, 0];
+          const [bW, bD] = b.match(/(\d+)週(\d+)日/)?.slice(1).map(Number) || [0, 0];
+          return aW - bW || aD - bD;
+        });
         
         console.log(`Loaded ${Object.keys(this.markings).length} markings, ${this.markedWords.length} marked words`);
       }
@@ -225,42 +232,19 @@
         return this.markings[word.kanji] || 0;
       }
       
-      // ===== FILTERING HELPERS =====
-      getMarkedWordsByLevel(level) {
-        if (level === 'ALL') return this.markedWords;
-        return this.markedWords.filter(w => w.level === level);
-      }
-      
-      getAvailableWeekDays(level) {
-        const words = this.getMarkedWordsByLevel(level);
-        const weekDaySet = new Set(words.map(w => w.weekDayLabel));
-        return [...weekDaySet].sort((a, b) => {
-          const [aW, aD] = a.match(/(\d+)週(\d+)日/)?.slice(1).map(Number) || [0, 0];
-          const [bW, bD] = b.match(/(\d+)週(\d+)日/)?.slice(1).map(Number) || [0, 0];
-          return aW - bW || aD - bD;
-        });
-      }
-      
-      getStatsByLevel(level) {
-        const words = this.getMarkedWordsByLevel(level);
-        const stats = { total: words.length, byMark: {} };
-        Object.keys(MARKING_CATEGORIES).forEach(k => stats.byMark[k] = 0);
-        words.forEach(w => {
-          const m = this.getMarking(w);
-          if (m > 0) stats.byMark[m]++;
-        });
-        return stats;
-      }
-      
       // ===== STUDY SESSION =====
-      startStudy() {
-        let words = this.getMarkedWordsByLevel(this.selectedLevel);
+      startStudy(weekDay) {
+        this.selectedWeekDay = weekDay;
         
-        if (this.selectedWeekDay && this.selectedWeekDay !== 'ALL') {
-          words = words.filter(w => w.weekDayLabel === this.selectedWeekDay);
+        if (weekDay === 'ALL') {
+          this.studyWords = [...this.markedWords];
+        } else {
+          this.studyWords = this.markedWords.filter(w => w.weekDayLabel === weekDay);
         }
         
-        this.studyWords = this.shuffleArray([...words]);
+        // Shuffle for better learning
+        this.studyWords = this.shuffleArray([...this.studyWords]);
+        
         this.currentIndex = 0;
         this.resetReveal();
         this.render();
@@ -275,7 +259,7 @@
       }
       
       resetReveal() {
-        this.showContext = false;
+        this.showSupporting = false;
         this.revealStep = 0;
       }
       
@@ -307,8 +291,8 @@
         }
       }
       
-      toggleContext() {
-        this.showContext = !this.showContext;
+      toggleSupporting() {
+        this.showSupporting = !this.showSupporting;
         this.render();
       }
       
@@ -320,14 +304,6 @@
       }
       
       backToSelector() {
-        this.studyWords = [];
-        this.currentIndex = 0;
-        this.resetReveal();
-        this.render();
-      }
-      
-      backToLevelSelector() {
-        this.selectedLevel = null;
         this.selectedWeekDay = null;
         this.studyWords = [];
         this.currentIndex = 0;
@@ -349,12 +325,7 @@
           return;
         }
         
-        if (!this.selectedLevel) {
-          app.innerHTML = this.renderLevelSelector();
-          return;
-        }
-        
-        if (this.studyWords.length === 0) {
+        if (!this.selectedWeekDay) {
           app.innerHTML = this.renderWeekDaySelector();
           return;
         }
@@ -404,126 +375,40 @@
           </div>`;
       }
       
-      renderLevelSelector() {
-        const n1Stats = this.getStatsByLevel('N1');
-        const n2Stats = this.getStatsByLevel('N2');
-        const n3Stats = this.getStatsByLevel('N3');
-        const allStats = this.getStatsByLevel('ALL');
+      renderWeekDaySelector() {
+        const totalMarked = this.markedWords.length;
+        
+        // Group by marking category
+        const byCategory = {};
+        Object.keys(MARKING_CATEGORIES).forEach(k => byCategory[k] = 0);
+        this.markedWords.forEach(w => {
+          const m = this.getMarking(w);
+          if (m > 0) byCategory[m]++;
+        });
         
         return `
           <div class="min-h-screen p-4">
-            <div class="max-w-md mx-auto pt-6">
+            <div class="max-w-lg mx-auto pt-6">
               <!-- Header -->
               <div class="text-center mb-6">
                 <div class="w-16 h-16 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-2xl flex flex-col items-center justify-center text-white mx-auto mb-3">
                   <span class="text-xs font-bold">学習</span>
                   <span class="text-lg font-bold">モード</span>
                 </div>
-                <h1 class="text-xl font-bold text-white mb-1">Select Level</h1>
-                <p class="text-slate-400 text-sm">${this.markedWords.length} total marked words</p>
-              </div>
-              
-              <!-- Level Cards -->
-              <div class="space-y-3">
-                <!-- N1 -->
-                <button onclick="app.selectedLevel = 'N1'; app.render();" class="w-full p-5 bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all text-left group">
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-4">
-                      <div class="w-14 h-14 bg-rose-500 rounded-xl flex items-center justify-center text-white text-xl font-bold">N1</div>
-                      <div>
-                        <h3 class="text-lg font-bold text-gray-800">JLPT N1</h3>
-                        <p class="text-gray-500 text-sm">${n1Stats.total} marked words</p>
-                      </div>
-                    </div>
-                    <span class="text-2xl text-gray-400 group-hover:translate-x-1 transition-transform">→</span>
-                  </div>
-                </button>
-                
-                <!-- N2 -->
-                <button onclick="app.selectedLevel = 'N2'; app.render();" class="w-full p-5 bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all text-left group">
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-4">
-                      <div class="w-14 h-14 bg-amber-500 rounded-xl flex items-center justify-center text-white text-xl font-bold">N2</div>
-                      <div>
-                        <h3 class="text-lg font-bold text-gray-800">JLPT N2</h3>
-                        <p class="text-gray-500 text-sm">${n2Stats.total} marked words</p>
-                      </div>
-                    </div>
-                    <span class="text-2xl text-gray-400 group-hover:translate-x-1 transition-transform">→</span>
-                  </div>
-                </button>
-                
-                <!-- N3 -->
-                <button onclick="app.selectedLevel = 'N3'; app.render();" class="w-full p-5 bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all text-left group">
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-4">
-                      <div class="w-14 h-14 bg-emerald-500 rounded-xl flex items-center justify-center text-white text-xl font-bold">N3</div>
-                      <div>
-                        <h3 class="text-lg font-bold text-gray-800">JLPT N3</h3>
-                        <p class="text-gray-500 text-sm">${n3Stats.total} marked words</p>
-                      </div>
-                    </div>
-                    <span class="text-2xl text-gray-400 group-hover:translate-x-1 transition-transform">→</span>
-                  </div>
-                </button>
-                
-                <!-- ALL -->
-                <button onclick="app.selectedLevel = 'ALL'; app.render();" class="w-full p-5 bg-slate-700 rounded-2xl shadow-lg hover:shadow-xl transition-all text-left group">
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-4">
-                      <div class="w-14 h-14 bg-slate-600 rounded-xl flex items-center justify-center text-white text-lg font-bold">ALL</div>
-                      <div>
-                        <h3 class="text-lg font-bold text-white">All Levels</h3>
-                        <p class="text-slate-400 text-sm">${allStats.total} marked words</p>
-                      </div>
-                    </div>
-                    <span class="text-2xl text-slate-400 group-hover:translate-x-1 transition-transform">→</span>
-                  </div>
-                </button>
-              </div>
-              
-              <!-- Sign out -->
-              <div class="mt-8 text-center">
-                <button onclick="app.signOut();" class="text-slate-500 hover:text-white text-sm transition-colors">
-                  Sign out (${this.user?.email || ''})
-                </button>
-              </div>
-            </div>
-          </div>`;
-      }
-      
-      renderWeekDaySelector() {
-        const stats = this.getStatsByLevel(this.selectedLevel);
-        const weekDays = this.getAvailableWeekDays(this.selectedLevel);
-        const levelColor = LEVEL_COLORS[this.selectedLevel];
-        
-        return `
-          <div class="min-h-screen p-4">
-            <div class="max-w-lg mx-auto pt-6">
-              <!-- Header -->
-              <div class="flex items-center gap-3 mb-6">
-                <button onclick="app.backToLevelSelector();" class="text-white hover:bg-slate-700 p-2 rounded-lg">
-                  ← Back
-                </button>
-                <div class="w-12 h-12 ${levelColor.bg} rounded-xl flex items-center justify-center text-white font-bold">
-                  ${this.selectedLevel === 'ALL' ? '全' : this.selectedLevel}
-                </div>
-                <div>
-                  <h1 class="text-lg font-bold text-white">${this.selectedLevel === 'ALL' ? 'All Levels' : this.selectedLevel} Study</h1>
-                  <p class="text-slate-400 text-sm">${stats.total} marked words</p>
-                </div>
+                <h1 class="text-xl font-bold text-white mb-1">Select Chapter</h1>
+                <p class="text-slate-400 text-sm">${totalMarked} marked words ready to study</p>
               </div>
               
               <!-- Stats -->
               <div class="bg-slate-800 rounded-xl p-4 mb-6">
-                <h3 class="text-sm text-slate-400 mb-3">Marking Breakdown</h3>
+                <h3 class="text-sm text-slate-400 mb-3">Your Marked Words</h3>
                 <div class="grid grid-cols-5 gap-2">
                   ${Object.entries(MARKING_CATEGORIES).map(([k, v]) => `
                     <div class="text-center">
                       <div class="w-10 h-10 ${v.color} rounded-lg flex items-center justify-center mx-auto mb-1">
                         <span class="text-white text-lg">${v.icon}</span>
                       </div>
-                      <span class="text-white font-bold">${stats.byMark[k]}</span>
+                      <span class="text-white font-bold">${byCategory[k]}</span>
                     </div>
                   `).join('')}
                 </div>
@@ -532,16 +417,24 @@
               <!-- Week/Day Dropdown -->
               <div class="bg-white rounded-2xl p-5 shadow-xl mb-4">
                 <label class="block text-sm font-medium text-gray-600 mb-2">Select Chapter and Lesson</label>
-                <select id="weekDaySelect" class="w-full p-4 text-lg font-bold text-center border-2 border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
-                  <option value="ALL">📚 All ${this.selectedLevel === 'ALL' ? '' : this.selectedLevel + ' '}Words (${stats.total})</option>
-                  ${weekDays.map(wd => {
-                    const count = this.getMarkedWordsByLevel(this.selectedLevel).filter(w => w.weekDayLabel === wd).length;
+                <select id="weekDaySelect" class="w-full p-4 text-xl font-bold text-center border-2 border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                  <option value="">-- Select --</option>
+                  <option value="ALL">📚 All Marked Words (${totalMarked})</option>
+                  ${this.availableWeekDays.map(wd => {
+                    const count = this.markedWords.filter(w => w.weekDayLabel === wd).length;
                     return `<option value="${wd}">${wd} (${count} words)</option>`;
                   }).join('')}
                 </select>
                 
-                <button onclick="app.selectedWeekDay = document.getElementById('weekDaySelect').value; app.startStudy();" class="w-full mt-4 py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-lg rounded-xl hover:opacity-90 transition-opacity">
+                <button onclick="const v = document.getElementById('weekDaySelect').value; if(v) app.startStudy(v);" class="w-full mt-4 py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-lg rounded-xl hover:opacity-90 transition-opacity">
                   ▶ Start Study
+                </button>
+              </div>
+              
+              <!-- Sign out -->
+              <div class="text-center">
+                <button onclick="app.signOut();" class="text-slate-500 hover:text-white text-sm transition-colors">
+                  Sign out (${this.user?.email || ''})
                 </button>
               </div>
             </div>
@@ -553,9 +446,10 @@
           return `
             <div class="min-h-screen flex items-center justify-center p-4">
               <div class="text-center">
-                <p class="text-2xl text-white mb-4">No words found</p>
+                <p class="text-2xl text-white mb-4">No marked words found</p>
+                <p class="text-slate-400 mb-6">Mark some words in the main app first!</p>
                 <button onclick="app.backToSelector();" class="px-6 py-3 bg-slate-700 text-white rounded-xl hover:bg-slate-600">
-                  ← Back
+                  ← Back to Selection
                 </button>
               </div>
             </div>`;
@@ -564,12 +458,11 @@
         const word = this.studyWords[this.currentIndex];
         const marking = this.getMarking(word);
         const markInfo = MARKING_CATEGORIES[marking] || { color: 'bg-gray-500', icon: '?' };
-        const levelColor = LEVEL_COLORS[word.level] || LEVEL_COLORS['ALL'];
         
-        // Context
-        const ctxBefore = word.example_before || word.supporting_word_1 || '';
-        const ctxAfter = word.example_after || word.supporting_word_2 || '';
-        const hasContext = ctxBefore || ctxAfter;
+        // Supporting words (context)
+        const supportBefore = word.example_before || word.supporting_word_1 || '';
+        const supportAfter = word.example_after || word.supporting_word_2 || '';
+        const hasSupport = supportBefore || supportAfter;
         
         return `
           <div class="min-h-screen flex flex-col">
@@ -579,42 +472,46 @@
                 ← Back
               </button>
               <div class="text-center">
-                <div class="flex items-center justify-center gap-2">
-                  <span class="px-2 py-1 ${levelColor.bg} text-white text-xs rounded font-bold">${word.level}</span>
-                  <span class="text-emerald-400 font-bold">${this.selectedWeekDay === 'ALL' ? 'All' : this.selectedWeekDay}</span>
-                </div>
-                <span class="text-slate-400 text-sm">${this.currentIndex + 1} / ${this.studyWords.length}</span>
+                <span class="text-emerald-400 font-bold">${this.selectedWeekDay === 'ALL' ? 'All Words' : this.selectedWeekDay}</span>
+                <span class="text-slate-400 text-sm block">${this.currentIndex + 1} / ${this.studyWords.length}</span>
               </div>
               <div class="w-10 h-10 ${markInfo.color} rounded-lg flex items-center justify-center">
                 <span class="text-white text-lg">${markInfo.icon}</span>
               </div>
             </header>
             
-            <!-- Main Study Area -->
+            <!-- Main Study Card -->
             <main class="flex-1 flex flex-col items-center justify-center p-4">
               <div class="w-full max-w-2xl">
                 
-                <!-- Sentence Box (Context + Kanji in one block) -->
-                <div class="sentence-box rounded-2xl p-6 mb-4 min-h-[120px] flex items-center justify-center">
-                  <p class="text-center leading-relaxed">
-                    ${this.showContext && ctxBefore ? `<span class="context-text">①${ctxBefore}</span>` : ''}
-                    <span class="kanji-highlight mx-2">${word.kanji || word.raw}</span>
-                    ${this.showContext && ctxAfter ? `<span class="context-text">${ctxAfter}②</span>` : ''}
-                  </p>
-                </div>
+                <!-- Supporting Words (Before) - Hidden by default -->
+                ${hasSupport ? `
+                  <div class="mb-4 transition-all duration-300 ${this.showSupporting ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden'}">
+                    ${supportBefore ? `
+                      <div class="context-box p-4 rounded-xl animate-fadeIn">
+                        <span class="text-amber-800 supporting-text">①${supportBefore}</span>
+                      </div>
+                    ` : ''}
+                  </div>
+                ` : ''}
                 
-                <!-- Reveal Box (Hiragana + Meaning) -->
-                <div class="bg-white rounded-2xl shadow-xl overflow-hidden mb-4 cursor-pointer" onclick="app.revealNext();">
-                  <div class="p-6 text-center min-h-[140px] flex flex-col items-center justify-center">
+                <!-- Main Word Card -->
+                <div class="bg-white rounded-3xl shadow-2xl overflow-hidden">
+                  <!-- Kanji Display -->
+                  <div class="p-8 text-center bg-gradient-to-br from-slate-50 to-slate-100 cursor-pointer" onclick="app.revealNext();">
+                    <p class="kanji-display font-bold text-rose-600 animate-slideIn">
+                      ${word.kanji || word.raw}
+                    </p>
+                    
                     <!-- Hiragana (Step 1) -->
-                    <div class="transition-all duration-300 ${this.revealStep >= 1 ? 'opacity-100' : 'opacity-0 h-0'}">
+                    <div class="mt-4 min-h-[2rem] transition-all duration-300 ${this.revealStep >= 1 ? 'opacity-100' : 'opacity-0'}">
                       ${this.revealStep >= 1 ? `
-                        <p class="text-2xl text-slate-700 mb-3 animate-fadeIn">${word.hiragana || ''}</p>
+                        <p class="text-2xl text-slate-600 animate-fadeIn">${word.hiragana || ''}</p>
                       ` : ''}
                     </div>
                     
                     <!-- Meaning (Step 2) -->
-                    <div class="transition-all duration-300 ${this.revealStep >= 2 ? 'opacity-100' : 'opacity-0 h-0'}">
+                    <div class="mt-4 min-h-[3rem] transition-all duration-300 ${this.revealStep >= 2 ? 'opacity-100' : 'opacity-0'}">
                       ${this.revealStep >= 2 ? `
                         <p class="text-xl text-emerald-700 font-medium animate-fadeIn">${word.meaning}</p>
                         ${word.hint ? `<p class="text-sm text-slate-500 mt-2">💡 ${word.hint}</p>` : ''}
@@ -623,26 +520,37 @@
                     
                     <!-- Tap hint -->
                     ${this.revealStep < 2 ? `
-                      <p class="text-slate-400 text-sm">
-                        ${this.revealStep === 0 ? '👆 Tap to reveal reading' : '👆 Tap to reveal meaning'}
+                      <p class="text-slate-400 text-sm mt-6">
+                        ${this.revealStep === 0 ? 'Tap to reveal reading' : 'Tap to reveal meaning'}
                       </p>
                     ` : ''}
                   </div>
                 </div>
                 
+                <!-- Supporting Words (After) - Hidden by default -->
+                ${hasSupport ? `
+                  <div class="mt-4 transition-all duration-300 ${this.showSupporting ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden'}">
+                    ${supportAfter ? `
+                      <div class="context-box p-4 rounded-xl animate-fadeIn">
+                        <span class="text-amber-800 supporting-text">②${supportAfter}</span>
+                      </div>
+                    ` : ''}
+                  </div>
+                ` : ''}
+                
                 <!-- Control Buttons -->
-                <div class="flex flex-col gap-3">
-                  <!-- Show/Hide Context -->
-                  ${hasContext ? `
-                    <button onclick="app.toggleContext();" class="w-full py-3 rounded-xl font-medium transition-all ${this.showContext ? 'bg-amber-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}">
-                      ${this.showContext ? '🔽 Hide Context' : '🔼 Show Context'}
+                <div class="mt-6 flex flex-col gap-3">
+                  <!-- Show/Hide Supporting Words -->
+                  ${hasSupport ? `
+                    <button onclick="app.toggleSupporting();" class="w-full py-3 rounded-xl font-medium transition-all ${this.showSupporting ? 'bg-amber-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}">
+                      ${this.showSupporting ? '🔽 Hide Context' : '🔼 Show Context'}
                     </button>
                   ` : ''}
                   
                   <!-- Navigation -->
                   <div class="flex gap-3">
                     <button onclick="app.prevWord();" class="flex-1 py-4 bg-slate-700 text-white rounded-xl hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors" ${this.currentIndex === 0 ? 'disabled' : ''}>
-                      ◀ Prev
+                      ◀ Previous
                     </button>
                     <button onclick="app.randomWord();" class="px-6 py-4 bg-purple-600 text-white rounded-xl hover:bg-purple-500 transition-colors">
                       🎲
@@ -654,7 +562,7 @@
                 </div>
                 
                 <!-- Progress Bar -->
-                <div class="mt-4 bg-slate-700 rounded-full h-2 overflow-hidden">
+                <div class="mt-6 bg-slate-700 rounded-full h-2 overflow-hidden">
                   <div class="bg-emerald-500 h-full transition-all duration-300" style="width: ${((this.currentIndex + 1) / this.studyWords.length) * 100}%"></div>
                 </div>
               </div>
