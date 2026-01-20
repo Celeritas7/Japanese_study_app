@@ -548,39 +548,6 @@
           </div>`;
       }
       
-      // Update marking in database
-      async updateMarking(kanji, newMarking) {
-        const oldMarking = this.markings[kanji] || 0;
-        this.markings[kanji] = newMarking;
-        this.render();
-        
-        if (!this.user) return;
-        
-        try {
-          if (newMarking === 0) {
-            // Delete the marking if set to 0
-            await supabase.from('user_markings')
-              .delete()
-              .eq('user_id', this.user.id)
-              .eq('kanji', kanji);
-          } else {
-            // Upsert the marking
-            await supabase.from('user_markings').upsert({
-              user_id: this.user.id,
-              kanji: kanji,
-              marking: newMarking,
-              updated_at: new Date().toISOString()
-            }, { onConflict: 'user_id,kanji' });
-          }
-          console.log(`Updated marking for ${kanji}: ${oldMarking} → ${newMarking}`);
-        } catch (err) {
-          console.error('Update marking error:', err);
-          // Revert on error
-          this.markings[kanji] = oldMarking;
-          this.render();
-        }
-      }
-      
       renderStudyMode() {
         if (this.studyWords.length === 0) {
           return `
@@ -598,14 +565,10 @@
         const marking = this.getMarking(word);
         const markInfo = MARKING_CATEGORIES[marking] || { color: 'bg-gray-500', icon: '?' };
         const levelColor = LEVEL_COLORS[word.level] || LEVEL_COLORS['ALL'];
-        const kanjiEscaped = (word.kanji || '').replace(/'/g, "\\'");
         
-        // Context - remove any existing ① ② markers from the data
-        let ctxBefore = word.example_before || word.supporting_word_1 || '';
-        let ctxAfter = word.example_after || word.supporting_word_2 || '';
-        // Clean up any ① ② markers that might be in the data
-        ctxBefore = ctxBefore.replace(/^[①②]\s*/, '').replace(/[①②]\s*$/, '');
-        ctxAfter = ctxAfter.replace(/^[①②]\s*/, '').replace(/[①②]\s*$/, '');
+        // Context
+        const ctxBefore = word.example_before || word.supporting_word_1 || '';
+        const ctxAfter = word.example_after || word.supporting_word_2 || '';
         const hasContext = ctxBefore || ctxAfter;
         
         return `
@@ -634,9 +597,9 @@
                 <!-- Sentence Box (Context + Kanji in one block) -->
                 <div class="sentence-box rounded-2xl p-6 mb-4 min-h-[120px] flex items-center justify-center">
                   <p class="text-center leading-relaxed">
-                    ${this.showContext && ctxBefore ? `<span class="context-text">${ctxBefore}</span>` : ''}
-                    <span class="kanji-highlight mx-1">${word.kanji || word.raw}</span>
-                    ${this.showContext && ctxAfter ? `<span class="context-text">${ctxAfter}</span>` : ''}
+                    ${this.showContext && ctxBefore ? `<span class="context-text">①${ctxBefore}</span>` : ''}
+                    <span class="kanji-highlight mx-2">${word.kanji || word.raw}</span>
+                    ${this.showContext && ctxAfter ? `<span class="context-text">${ctxAfter}②</span>` : ''}
                   </p>
                 </div>
                 
@@ -664,19 +627,6 @@
                         ${this.revealStep === 0 ? '👆 Tap to reveal reading' : '👆 Tap to reveal meaning'}
                       </p>
                     ` : ''}
-                  </div>
-                </div>
-                
-                <!-- Rating Buttons -->
-                <div class="bg-slate-800 rounded-xl p-3 mb-4">
-                  <p class="text-slate-400 text-xs text-center mb-2">Change Rating</p>
-                  <div class="flex justify-center gap-2">
-                    ${Object.entries(MARKING_CATEGORIES).map(([k, v]) => `
-                      <button onclick="event.stopPropagation(); app.updateMarking('${kanjiEscaped}', ${marking === parseInt(k) ? 0 : parseInt(k)});" 
-                        class="w-11 h-11 rounded-xl flex items-center justify-center transition-all ${marking === parseInt(k) ? v.color + ' ring-2 ring-white scale-110' : 'bg-slate-700 hover:bg-slate-600'}">
-                        <span class="text-lg">${v.icon}</span>
-                      </button>
-                    `).join('')}
                   </div>
                 </div>
                 
