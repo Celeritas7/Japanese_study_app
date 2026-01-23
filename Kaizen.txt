@@ -1,0 +1,23 @@
+Want some more corrections,
+1. Want to see not only marked but also the unmarked words in the app.
+2. Inside the attached page shown, there are different categories shown for N1 goi. I want to see the word list related to that category. So that I can just get the overview of words and I can study them from there.
+
+
+
+
+Can I generate a section to display words with similar meaning, similar hiragana, similar kanji words, almost similar meaning words side by side as remembering them will be easier by reading in this way.
+
+
+
+
+
+Want to add the story section inside the app. Just remember this is the special section of the app. It is there to teach how the kanjies got their meaning.
+
+First of all let me teach you how it is being generated before generating any code.
+
+
+
+
+So the thing is everytime I search for any kanji. You have to show the entire block having those kanji, their meaning and story.
+
+This is the way I will visually remember the kanji.
