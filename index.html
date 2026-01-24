@@ -181,126 +181,156 @@
         this.syncing = true;
         this.render();
         
-        try {
-          await Promise.all([
-            this.loadVocabulary(),
-            this.loadMarkings(),
-            this.loadReviews(),
-            this.loadDailyLog(),
-            this.loadStoryGroups(),
-            this.loadStories(),
-            this.loadSimilarGroups(),
-          ]);
-        } catch (err) {
-          console.error('Load data error:', err);
-        }
+        // Load each independently so one failure doesn't break everything
+        await this.loadVocabulary();
+        await this.loadMarkings();
+        await this.loadReviews();
+        await this.loadDailyLog();
+        await this.loadStoryGroups();
+        await this.loadStories();
+        await this.loadSimilarGroups();
         
         this.syncing = false;
         this.render();
       }
       
       async loadVocabulary() {
-        let allData = [];
-        let page = 0;
-        const pageSize = 1000;
-        
-        while (true) {
-          const { data, error } = await supabase
-            .from('japanese_vocabulary')
-            .select('*')
-            .range(page * pageSize, (page + 1) * pageSize - 1)
-            .order('id');
+        try {
+          let allData = [];
+          let page = 0;
+          const pageSize = 1000;
           
-          if (error) throw error;
-          if (!data || data.length === 0) break;
-          allData = allData.concat(data);
-          if (data.length < pageSize) break;
-          page++;
+          while (true) {
+            const { data, error } = await supabase
+              .from('japanese_vocabulary')
+              .select('*')
+              .range(page * pageSize, (page + 1) * pageSize - 1)
+              .order('id');
+            
+            if (error) { console.error('Vocabulary error:', error); break; }
+            if (!data || data.length === 0) break;
+            allData = allData.concat(data);
+            if (data.length < pageSize) break;
+            page++;
+          }
+          
+          this.vocabulary = allData;
+          console.log(`Loaded ${this.vocabulary.length} vocabulary words`);
+        } catch (err) {
+          console.error('loadVocabulary failed:', err);
+          this.vocabulary = [];
         }
-        
-        this.vocabulary = allData;
-        console.log(`Loaded ${this.vocabulary.length} vocabulary words`);
       }
       
       async loadMarkings() {
         if (!this.user) return;
-        const { data, error } = await supabase
-          .from('japanese_user_markings')
-          .select('kanji, marking')
-          .eq('user_id', this.user.id);
-        
-        if (error) { console.error('Markings error:', error); return; }
-        this.markings = {};
-        (data || []).forEach(r => this.markings[r.kanji] = r.marking);
+        try {
+          const { data, error } = await supabase
+            .from('japanese_user_markings')
+            .select('kanji, marking')
+            .eq('user_id', this.user.id);
+          
+          if (error) { console.error('Markings error:', error); this.markings = {}; return; }
+          this.markings = {};
+          (data || []).forEach(r => this.markings[r.kanji] = r.marking);
+        } catch (err) {
+          console.error('loadMarkings failed:', err);
+          this.markings = {};
+        }
       }
       
       async loadReviews() {
         if (!this.user) return;
-        const { data, error } = await supabase
-          .from('japanese_user_reviews')
-          .select('*')
-          .eq('user_id', this.user.id);
-        
-        if (error) { console.error('Reviews error:', error); return; }
-        this.reviews = data || [];
+        try {
+          const { data, error } = await supabase
+            .from('japanese_user_reviews')
+            .select('*')
+            .eq('user_id', this.user.id);
+          
+          if (error) { console.error('Reviews error:', error); this.reviews = []; return; }
+          this.reviews = data || [];
+        } catch (err) {
+          console.error('loadReviews failed:', err);
+          this.reviews = [];
+        }
       }
       
       async loadDailyLog() {
         if (!this.user) return;
-        const today = new Date().toISOString().split('T')[0];
-        const { data, error } = await supabase
-          .from('japanese_daily_test_log')
-          .select('*')
-          .eq('user_id', this.user.id)
-          .eq('test_date', today);
-        
-        if (error) { console.error('Daily log error:', error); return; }
-        this.dailyLog = data || [];
+        try {
+          const today = new Date().toISOString().split('T')[0];
+          const { data, error } = await supabase
+            .from('japanese_daily_test_log')
+            .select('*')
+            .eq('user_id', this.user.id)
+            .eq('test_date', today);
+          
+          if (error) { console.error('Daily log error:', error); this.dailyLog = []; return; }
+          this.dailyLog = data || [];
+        } catch (err) {
+          console.error('loadDailyLog failed:', err);
+          this.dailyLog = [];
+        }
       }
       
       async loadStoryGroups() {
-        const { data, error } = await supabase
-          .from('japanese_kanji_story_groups')
-          .select('*')
-          .order('group_id');
-        
-        if (error) { console.error('Story groups error:', error); return; }
-        this.storyGroups = data || [];
-        console.log(`Loaded ${this.storyGroups.length} story groups`);
+        try {
+          const { data, error } = await supabase
+            .from('japanese_kanji_story_groups')
+            .select('*')
+            .order('group_id');
+          
+          if (error) { console.error('Story groups error:', error); this.storyGroups = []; return; }
+          this.storyGroups = data || [];
+          console.log(`Loaded ${this.storyGroups.length} story groups`);
+        } catch (err) {
+          console.error('loadStoryGroups failed:', err);
+          this.storyGroups = [];
+        }
       }
       
       async loadStories() {
-        let allData = [];
-        let page = 0;
-        const pageSize = 1000;
-        
-        while (true) {
-          const { data, error } = await supabase
-            .from('japanese_kanji_stories')
-            .select('*')
-            .range(page * pageSize, (page + 1) * pageSize - 1)
-            .order('id');
+        try {
+          let allData = [];
+          let page = 0;
+          const pageSize = 1000;
           
-          if (error) throw error;
-          if (!data || data.length === 0) break;
-          allData = allData.concat(data);
-          if (data.length < pageSize) break;
-          page++;
+          while (true) {
+            const { data, error } = await supabase
+              .from('japanese_kanji_stories')
+              .select('*')
+              .range(page * pageSize, (page + 1) * pageSize - 1)
+              .order('id');
+            
+            if (error) { console.error('Stories error:', error); break; }
+            if (!data || data.length === 0) break;
+            allData = allData.concat(data);
+            if (data.length < pageSize) break;
+            page++;
+          }
+          
+          this.stories = allData;
+          console.log(`Loaded ${this.stories.length} stories`);
+        } catch (err) {
+          console.error('loadStories failed:', err);
+          this.stories = [];
         }
-        
-        this.stories = allData;
-        console.log(`Loaded ${this.stories.length} stories`);
       }
       
       async loadSimilarGroups() {
-        const { data, error } = await supabase
-          .from('japanese_kanji_similar_groups')
-          .select('*')
-          .order('id');
-        
-        if (error) { console.error('Similar groups error:', error); return; }
-        this.similarGroups = data || [];
-        console.log(`Loaded ${this.similarGroups.length} similar groups`);
+        try {
+          const { data, error } = await supabase
+            .from('japanese_kanji_similar_groups')
+            .select('*')
+            .order('id');
+          
+          if (error) { console.error('Similar groups error:', error); this.similarGroups = []; return; }
+          this.similarGroups = data || [];
+          console.log(`Loaded ${this.similarGroups.length} similar groups`);
+        } catch (err) {
+          console.error('loadSimilarGroups failed:', err);
+          this.similarGroups = [];
+        }
       }
       
       // ===== HELPERS =====
