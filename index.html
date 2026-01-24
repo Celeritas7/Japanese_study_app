@@ -220,7 +220,7 @@
         if (!this.user) return;
         
         const { data, error } = await supabase
-          .from('user_markings')
+          .from('japanese_user_markings')
           .select('kanji, marking')
           .eq('user_id', this.user.id);
         
@@ -290,7 +290,7 @@
               .eq('user_id', this.user.id)
               .eq('kanji', kanji);
           } else {
-            await supabase.from('user_markings').upsert({
+            await supabase.from('japanese_user_markings').upsert({
               user_id: this.user.id,
               kanji: kanji,
               marking: newMarking,
