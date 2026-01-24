@@ -71,6 +71,32 @@ ALTER TABLE japanese_kanji_story_groups ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public read" ON japanese_kanji_story_groups FOR SELECT USING (true);
 
 
+-- 1. Delete the existing member table to start fresh
+DROP TABLE IF EXISTS japanese_kanji_stories CASCADE;
+
+-- 2. Create the table with your preferred column order
+CREATE TABLE japanese_kanji_stories (
+  id SERIAL PRIMARY KEY,
+  group_id INTEGER REFERENCES japanese_kanji_story_groups(id), -- Links to your Group table
+  member_number INTEGER,      -- Position in group (1, 2, 3...)
+  kanji TEXT NOT NULL,        -- The character
+  original_kanji TEXT,        -- Your reference column (now in the middle!)
+  meaning TEXT,
+  story TEXT,
+  onyomi TEXT,
+  kunyomi TEXT,               -- Added to match your Group table structure
+  frame_number TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(kanji)               -- Ensures no duplicate kanji entries
+);
+
+-- 3. Enable Security (matching your Group table settings)
+ALTER TABLE japanese_kanji_stories ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public read" ON japanese_kanji_stories FOR SELECT USING (true);
+
+-- 4. Speed index
+CREATE INDEX idx_kanji_lookup ON japanese_kanji_stories(kanji);
+
 
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
