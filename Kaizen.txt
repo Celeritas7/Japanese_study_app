@@ -1,19 +1,30 @@
-Want some more corrections,
-1. Want to see not only marked but also the unmarked words in the app.
-2. Inside the attached page shown, there are different categories shown for N1 goi. I want to see the word list related to that category. So that I can just get the overview of words and I can study them from there.
+Don't need to generate any code as of now. Just remember the next new 3 features I want to add in my app. You can give suggestions related to these
 
 
+1.Want the n words random study mode (I will set the n value to study words). I should have option of japanese level, or all level mixed before starting the study mode. This study mode will have 3 types of random flashcards.
+a. guess the kanji from hiragana and check correct or wrong based on the answer I have in my mind. (I will choose the correct or incorrect).
+b. guess the hiragana from kanji and meaning
+c. guess the meaning from the kanji and hiragana
 
 
+2. New section to display words groupwise
 Can I generate a section to display words with similar meaning, similar hiragana, similar kanji words, almost similar meaning words side by side as remembering them will be easier by reading in this way.
 
 
 
 
-
+3. Story section
 Want to add the story section inside the app. Just remember this is the special section of the app. It is there to teach how the kanjies got their meaning.
 
 First of all let me teach you how it is being generated before generating any code.
+
+
+
+
+
+
+
+
 
 
 
