@@ -537,6 +537,7 @@
         
         if (!this.user) {
           app.innerHTML = this.renderLogin();
+          this.attachEventListeners();  // MUST call this for login page too!
           return;
         }
         
