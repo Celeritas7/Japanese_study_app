@@ -1068,13 +1068,21 @@
       // Writing Test: Meaning only → White box → Hint → Context → Hiragana → Kanji
       renderWritingTest(word, hasContext, ctxBefore, ctxAfter) {
         return `
-          <!-- Main Display: Meaning only -->
-          <div class="sentence-box rounded-2xl p-6 mb-4 min-h-[100px] flex items-center justify-center">
-            <p class="meaning-display text-amber-800 font-bold text-center">${word.meaning}</p>
+          <!-- Main Display: Hiragana + Meaning always visible -->
+          <div class="sentence-box rounded-2xl p-6 mb-4 min-h-[120px] flex flex-col items-center justify-center">
+            <p class="reading-display text-blue-700 font-bold mb-2">${word.hiragana || ''}</p>
+            <p class="meaning-display text-amber-800">${word.meaning}</p>
+            ${this.revealStep >= 2 && hasContext ? `
+              <div class="mt-3 text-center animate-fadeIn">
+                <span class="context-text">${ctxBefore}</span>
+                <span class="text-red-500 font-bold mx-1">？</span>
+                <span class="context-text">${ctxAfter}</span>
+              </div>
+            ` : ''}
           </div>
           
           <!-- Writing Box -->
-          <div class="writing-box rounded-2xl mb-4 flex items-center justify-center">
+          <div class="writing-box rounded-2xl mb-4 flex items-start justify-start p-4 bg-white shadow-inner min-h-[120px]">
             <p class="text-slate-400 text-sm">✍️ Write the kanji here</p>
           </div>
           
@@ -1096,12 +1104,7 @@
                 </div>
               ` : ''}
               
-              <!-- Step 3: Hiragana -->
-              ${this.revealStep >= 3 ? `
-                <p class="text-2xl text-blue-600 mb-3 animate-fadeIn">${word.hiragana || ''}</p>
-              ` : ''}
-              
-              <!-- Step 4: Kanji -->
+              <!-- Step 3: Kanji -->
               ${this.revealStep >= 4 ? `
                 <p class="kanji-highlight animate-fadeIn">${word.kanji || word.raw}</p>
               ` : ''}
