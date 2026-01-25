@@ -1,4 +1,6 @@
-Move ahead with the user input version of the app.
+Everytime I write anything in the canvas and reveal the hints so that I can write the kaji independently The canvas gets erased. Maybe entire tab get refreshed after pressing the reveal button. Can you correct it?
+
+
 
 
 
