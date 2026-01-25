@@ -278,7 +278,7 @@
           const { data, error } = await supabase
             .from('japanese_kanji_story_groups')
             .select('*')
-            .order('group_id');
+            .order('group_number');
           
           if (error) { console.error('Story groups error:', error); this.storyGroups = []; return; }
           this.storyGroups = data || [];
@@ -1141,7 +1141,7 @@
           const search = this.storyFilter.search.toLowerCase();
           groups = groups.filter(g => 
             g.group_kanji?.includes(this.storyFilter.search) ||
-            g.group_name?.toLowerCase().includes(search)
+            g.group_meaning?.toLowerCase().includes(search)
           );
         }
         
@@ -1162,11 +1162,11 @@
             <!-- Groups Grid -->
             <div class="grid grid-cols-2 gap-3">
               ${groups.slice(0, 40).map(group => {
-                const groupStories = this.stories.filter(s => s.group_id === group.group_id);
+                const groupStories = this.stories.filter(s => s.group_kanji === group.group_kanji);
                 return `
-                  <button data-story-group="${group.group_id}" class="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-left transition-all card-hover">
+                  <button data-story-group="${group.group_kanji}" class="bg-slate-800 hover:bg-slate-700 rounded-xl p-4 text-left transition-all card-hover">
                     <div class="text-3xl font-bold text-white mb-2">${group.group_kanji || '?'}</div>
-                    <div class="text-slate-300 text-sm truncate">${group.group_name || ''}</div>
+                    <div class="text-slate-300 text-sm truncate">${group.group_meaning || ''}</div>
                     <div class="text-slate-500 text-xs mt-1">${groupStories.length} 物語</div>
                   </button>
                 `;
@@ -1179,7 +1179,7 @@
       
       renderStoryGroupDetail() {
         const group = this.selectedStoryGroup;
-        const groupStories = this.stories.filter(s => s.group_id === group.group_id);
+        const groupStories = this.stories.filter(s => s.group_kanji === group.group_kanji);
         
         return `
           <div class="p-4 animate-fadeIn">
@@ -1189,7 +1189,7 @@
             
             <div class="bg-gradient-to-r from-purple-600 to-pink-600 rounded-2xl p-5 mb-4 text-white text-center">
               <div class="text-5xl font-bold mb-2">${group.group_kanji || '?'}</div>
-              <div class="text-lg">${group.group_name || ''}</div>
+              <div class="text-lg">${group.group_meaning || ''}</div>
               <div class="text-sm opacity-80 mt-1">${groupStories.length} 漢字</div>
             </div>
             
@@ -1298,7 +1298,7 @@
         });
         document.querySelectorAll('[data-story-group]').forEach(btn => {
           btn.addEventListener('click', () => {
-            this.selectedStoryGroup = this.storyGroups.find(g => g.group_id == btn.dataset.storyGroup);
+            this.selectedStoryGroup = this.storyGroups.find(g => g.group_kanji == btn.dataset.storyGroup);
             this.render();
           });
         });
