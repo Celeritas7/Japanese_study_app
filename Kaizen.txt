@@ -1,3 +1,16 @@
+Move ahead with the user input version of the app.
+
+
+
+
+
+
+
+
+
+
+
+
 Don't need to generate any code as of now. Just remember the next new 3 features I want to add in my app. You can give suggestions related to these
 
 
