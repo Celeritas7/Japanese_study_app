@@ -161,24 +161,6 @@
         this.selectedSimilarGroup = null;
         this.similarFilter = { type: 'all', search: '' };
         
-        // Canvas state (to preserve drawing)
-        this.canvasImageData = null;
-        
-        // SRS state
-        this.srsView = 'setup'; // 'setup', 'test', 'results'
-        this.srsConfig = {
-          n1Count: 0,
-          n2Count: 0,
-          n3Count: 0,
-          testType: 'hiragana_to_kanji' // 'hiragana_to_kanji', 'kanji_to_hiragana', 'writing'
-        };
-        this.srsWords = [];
-        this.srsCurrentIndex = 0;
-        this.srsAnswers = []; // { word, correct, userAnswer, correctAnswer }
-        this.srsOptions = []; // MCQ options for current question
-        this.srsSelectedAnswer = null;
-        this.srsShowResult = false;
-        
         this.init();
       }
       
@@ -488,10 +470,6 @@
       revealNext() {
         const maxSteps = this.getMaxRevealSteps();
         if (this.revealStep < maxSteps) {
-          // Save canvas data before re-render if in writing mode
-          if (this.selectedTestType === 'writing') {
-            this.saveCanvasData();
-          }
           this.revealStep++;
           this.render();
         }
@@ -516,7 +494,6 @@
           this.currentIndex++;
           this.revealStep = 0;
           this.showContext = false;
-          this.canvasImageData = null; // Clear canvas for new word
           this.render();
         }
       }
@@ -526,7 +503,6 @@
           this.currentIndex--;
           this.revealStep = 0;
           this.showContext = false;
-          this.canvasImageData = null; // Clear canvas for new word
           this.render();
         }
       }
@@ -540,7 +516,6 @@
           this.currentIndex = newIndex;
           this.revealStep = 0;
           this.showContext = false;
-          this.canvasImageData = null; // Clear canvas for new word
           this.render();
         }
       }
@@ -633,26 +608,6 @@
       clearCanvas() {
         if (this.canvasCtx && this.canvas) {
           this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-          this.canvasImageData = null;
-        }
-      }
-      
-      saveCanvasData() {
-        if (this.canvasCtx && this.canvas) {
-          this.canvasImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
-        }
-      }
-      
-      restoreCanvasData() {
-        if (this.canvasCtx && this.canvas && this.canvasImageData) {
-          // Resize canvas first
-          const container = this.canvas.parentElement;
-          if (container) {
-            const rect = container.getBoundingClientRect();
-            this.canvas.width = rect.width;
-            this.canvas.height = 180;
-          }
-          this.canvasCtx.putImageData(this.canvasImageData, 0, 0);
         }
       }
       
@@ -685,23 +640,7 @@
         
         // Initialize canvas if on writing test
         if (this.selectedTestType === 'writing' && this.studyView === 'flashcard') {
-          setTimeout(() => {
-            this.initCanvas();
-            // Restore canvas data if exists
-            if (this.canvasImageData) {
-              this.restoreCanvasData();
-            }
-          }, 50);
-        }
-        
-        // Initialize canvas for SRS writing test
-        if (this.currentTab === 'srs' && this.srsConfig.testType === 'writing' && this.srsView === 'test') {
-          setTimeout(() => {
-            this.initCanvas();
-            if (this.canvasImageData) {
-              this.restoreCanvasData();
-            }
-          }, 50);
+          setTimeout(() => this.initCanvas(), 50);
         }
       }
       
@@ -1240,10 +1179,22 @@
       // Writing Test: Meaning only → Canvas → Hint → Context → Hiragana → Kanji
       renderWritingTest(word, hasContext, ctxBefore, ctxAfter) {
         return `
-          <!-- Main Display: Meaning only -->
-          <div class="sentence-box rounded-2xl p-6 mb-4 min-h-[100px] flex items-center justify-center">
-            <p class="meaning-display text-amber-800 font-bold text-center">${word.meaning}</p>
-          </div>
+          <!-- Main Display: Hiragana + Meaning always visible -->
+          <div class="sentence-box rounded-2xl p-6 mb-4 min-h-[120px] flex flex-col items-center justify-center">
+            <p class="reading-display text-blue-700 font-bold mb-2">${word.hiragana || ''}</p>
+            <p class="meaning-display text-amber-800">${word.meaning}</p>
+            <!-- Step 1: Hint -->
+            ${this.revealStep >= 1 && word.hint ? `
+              <p class="hint-text mb-3 animate-fadeIn">💡 ${word.hint}</p>
+            ` : ''}
+
+            ${this.revealStep >= 2 && hasContext ? `
+              <div class="mt-3 text-center animate-fadeIn">
+                <span class="context-text">${ctxBefore}</span>
+                <span class="text-red-500 font-bold mx-1">？</span>
+                <span class="context-text">${ctxAfter}</span>
+              </div>
+            ` : ''}
           
           <!-- Writing Canvas -->
           <div class="canvas-container mb-4">
@@ -1259,26 +1210,7 @@
           <!-- Reveal Box -->
           <div class="reveal-box rounded-2xl shadow-xl overflow-hidden mb-4 cursor-pointer" id="revealBox">
             <div class="p-6 text-center min-h-[180px] flex flex-col items-center justify-center">
-              
-              <!-- Step 1: Hint -->
-              ${this.revealStep >= 1 && word.hint ? `
-                <p class="hint-text mb-3 animate-fadeIn">💡 ${word.hint}</p>
-              ` : ''}
-              
-              <!-- Step 2: Context -->
-              ${this.revealStep >= 2 && hasContext ? `
-                <div class="mb-3 animate-fadeIn">
-                  <span class="context-text">${ctxBefore}</span>
-                  <span class="text-red-500 font-bold mx-1">？</span>
-                  <span class="context-text">${ctxAfter}</span>
-                </div>
-              ` : ''}
-              
-              <!-- Step 3: Hiragana -->
-              ${this.revealStep >= 3 ? `
-                <p class="text-2xl text-blue-600 mb-3 animate-fadeIn">${word.hiragana || ''}</p>
-              ` : ''}
-              
+ 
               <!-- Step 4: Kanji -->
               ${this.revealStep >= 4 ? `
                 <p class="kanji-highlight animate-fadeIn">${word.kanji || word.raw}</p>
@@ -1297,516 +1229,16 @@
       
       // ===== SRS TAB =====
       renderSRSTab() {
-        switch (this.srsView) {
-          case 'setup': return this.renderSRSSetup();
-          case 'test': return this.renderSRSTest();
-          case 'results': return this.renderSRSResults();
-          default: return this.renderSRSSetup();
-        }
-      }
-      
-      renderSRSSetup() {
-        const n1Stats = this.getStatsByLevel('N1');
-        const n2Stats = this.getStatsByLevel('N2');
-        const n3Stats = this.getStatsByLevel('N3');
-        
         return `
           <div class="p-4 animate-fadeIn">
-            <div class="max-w-md mx-auto">
-              <div class="text-center mb-6">
-                <div class="text-5xl mb-3">🔄</div>
-                <h1 class="text-xl font-bold text-white mb-1">SRS Review Test</h1>
-                <p class="text-slate-400 text-sm">Select words and test type</p>
-              </div>
-              
-              <!-- Test Type Selection -->
-              <div class="bg-slate-800 rounded-xl p-4 mb-4">
-                <h3 class="text-sm text-slate-400 mb-3">Test Type</h3>
-                <div class="space-y-2">
-                  <button data-srs-test-type="hiragana_to_kanji" class="w-full p-3 rounded-xl text-left flex items-center gap-3 transition-all ${
-                    this.srsConfig.testType === 'hiragana_to_kanji' ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                  }">
-                    <span class="text-2xl">あ→漢</span>
-                    <div>
-                      <div class="font-medium">Hiragana → Kanji</div>
-                      <div class="text-xs opacity-70">See reading, choose kanji (MCQ)</div>
-                    </div>
-                  </button>
-                  <button data-srs-test-type="kanji_to_hiragana" class="w-full p-3 rounded-xl text-left flex items-center gap-3 transition-all ${
-                    this.srsConfig.testType === 'kanji_to_hiragana' ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                  }">
-                    <span class="text-2xl">漢→あ</span>
-                    <div>
-                      <div class="font-medium">Kanji → Hiragana</div>
-                      <div class="text-xs opacity-70">See kanji, choose reading (MCQ)</div>
-                    </div>
-                  </button>
-                  <button data-srs-test-type="writing" class="w-full p-3 rounded-xl text-left flex items-center gap-3 transition-all ${
-                    this.srsConfig.testType === 'writing' ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                  }">
-                    <span class="text-2xl">✍️</span>
-                    <div>
-                      <div class="font-medium">Writing Test</div>
-                      <div class="text-xs opacity-70">See meaning, write kanji</div>
-                    </div>
-                  </button>
-                </div>
-              </div>
-              
-              <!-- Word Count Selection -->
-              <div class="bg-white rounded-2xl p-5 shadow-xl mb-4">
-                <h3 class="text-sm font-medium text-gray-600 mb-4">Select word count per level</h3>
-                
-                <!-- N1 -->
-                <div class="flex items-center justify-between mb-4 p-3 bg-rose-50 rounded-xl">
-                  <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 bg-rose-500 rounded-lg flex items-center justify-center text-white font-bold">N1</div>
-                    <div>
-                      <div class="font-medium text-gray-800">JLPT N1</div>
-                      <div class="text-xs text-gray-500">${n1Stats.total} words available</div>
-                    </div>
-                  </div>
-                  <input type="number" id="srsN1Count" min="0" max="${n1Stats.total}" value="${this.srsConfig.n1Count}" 
-                    class="w-20 p-2 text-center border-2 border-rose-300 rounded-lg font-bold text-lg focus:outline-none focus:ring-2 focus:ring-rose-500">
-                </div>
-                
-                <!-- N2 -->
-                <div class="flex items-center justify-between mb-4 p-3 bg-amber-50 rounded-xl">
-                  <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center text-white font-bold">N2</div>
-                    <div>
-                      <div class="font-medium text-gray-800">JLPT N2</div>
-                      <div class="text-xs text-gray-500">${n2Stats.total} words available</div>
-                    </div>
-                  </div>
-                  <input type="number" id="srsN2Count" min="0" max="${n2Stats.total}" value="${this.srsConfig.n2Count}" 
-                    class="w-20 p-2 text-center border-2 border-amber-300 rounded-lg font-bold text-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
-                </div>
-                
-                <!-- N3 -->
-                <div class="flex items-center justify-between mb-4 p-3 bg-emerald-50 rounded-xl">
-                  <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 bg-emerald-500 rounded-lg flex items-center justify-center text-white font-bold">N3</div>
-                    <div>
-                      <div class="font-medium text-gray-800">JLPT N3</div>
-                      <div class="text-xs text-gray-500">${n3Stats.total} words available</div>
-                    </div>
-                  </div>
-                  <input type="number" id="srsN3Count" min="0" max="${n3Stats.total}" value="${this.srsConfig.n3Count}" 
-                    class="w-20 p-2 text-center border-2 border-emerald-300 rounded-lg font-bold text-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
-                </div>
-                
-                <div class="text-center text-gray-500 text-sm mb-4">
-                  Total: <span class="font-bold text-gray-800">${this.srsConfig.n1Count + this.srsConfig.n2Count + this.srsConfig.n3Count}</span> words
-                </div>
-                
-                <button id="startSRSTestBtn" class="w-full py-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold text-lg rounded-xl hover:opacity-90 disabled:opacity-50"
-                  ${(this.srsConfig.n1Count + this.srsConfig.n2Count + this.srsConfig.n3Count) === 0 ? 'disabled' : ''}>
-                  ▶ Start Test
-                </button>
-              </div>
+            <div class="max-w-md mx-auto text-center py-12">
+              <div class="text-6xl mb-4">🔄</div>
+              <h2 class="text-2xl font-bold text-white mb-2">SRS Review</h2>
+              <p class="text-slate-400 mb-6">Spaced Repetition System coming soon!</p>
+              <p class="text-slate-500 text-sm">This feature will track your progress and schedule reviews automatically.</p>
             </div>
           </div>
         `;
-      }
-      
-      renderSRSTest() {
-        if (this.srsWords.length === 0) {
-          return `
-            <div class="min-h-screen flex items-center justify-center p-4">
-              <div class="text-center">
-                <p class="text-2xl text-white mb-4">No words selected</p>
-                <button id="backToSRSSetupBtn" class="px-6 py-3 bg-slate-700 text-white rounded-xl">← Back</button>
-              </div>
-            </div>
-          `;
-        }
-        
-        const word = this.srsWords[this.srsCurrentIndex];
-        const levelColor = LEVEL_COLORS[word.level] || LEVEL_COLORS['ALL'];
-        const progress = ((this.srsCurrentIndex + 1) / this.srsWords.length) * 100;
-        
-        return `
-          <div class="flex flex-col h-full">
-            <!-- Header -->
-            <header class="bg-slate-800 px-4 py-3 flex items-center justify-between">
-              <button id="backToSRSSetupBtn" class="text-white hover:bg-slate-700 px-3 py-2 rounded-lg">← Exit</button>
-              <div class="text-center">
-                <span class="px-2 py-1 ${levelColor.bg} text-white text-xs rounded font-bold">${word.level}</span>
-                <div class="text-slate-400 text-sm mt-1">${this.srsCurrentIndex + 1} / ${this.srsWords.length}</div>
-              </div>
-              <div class="text-right">
-                <div class="text-emerald-400 text-sm">✓ ${this.srsAnswers.filter(a => a.correct).length}</div>
-                <div class="text-red-400 text-sm">✗ ${this.srsAnswers.filter(a => !a.correct).length}</div>
-              </div>
-            </header>
-            
-            <!-- Progress Bar -->
-            <div class="bg-slate-700 h-2">
-              <div class="bg-blue-500 h-full transition-all" style="width: ${progress}%"></div>
-            </div>
-            
-            <!-- Main Test Area -->
-            <main class="flex-1 flex flex-col items-center justify-center p-4 overflow-auto">
-              <div class="w-full max-w-2xl">
-                ${this.renderSRSQuestion(word)}
-              </div>
-            </main>
-          </div>
-        `;
-      }
-      
-      renderSRSQuestion(word) {
-        switch (this.srsConfig.testType) {
-          case 'hiragana_to_kanji':
-            return this.renderMCQQuestion(word, 'hiragana_to_kanji');
-          case 'kanji_to_hiragana':
-            return this.renderMCQQuestion(word, 'kanji_to_hiragana');
-          case 'writing':
-            return this.renderSRSWritingQuestion(word);
-          default:
-            return this.renderMCQQuestion(word, 'hiragana_to_kanji');
-        }
-      }
-      
-      renderMCQQuestion(word, type) {
-        const isHiraganaToKanji = type === 'hiragana_to_kanji';
-        const question = isHiraganaToKanji ? word.hiragana : word.kanji;
-        const correctAnswer = isHiraganaToKanji ? word.kanji : word.hiragana;
-        
-        return `
-          <!-- Question -->
-          <div class="sentence-box rounded-2xl p-6 mb-4 min-h-[120px] flex flex-col items-center justify-center">
-            <p class="text-sm text-amber-700 mb-2">${isHiraganaToKanji ? 'Reading' : 'Kanji'}</p>
-            <p class="${isHiraganaToKanji ? 'text-3xl text-blue-700' : 'kanji-highlight'} font-bold">${question}</p>
-            <p class="text-amber-800 mt-2">${word.meaning}</p>
-          </div>
-          
-          <!-- Options -->
-          <div class="space-y-3 mb-4">
-            ${this.srsOptions.map((option, idx) => {
-              let btnClass = 'bg-white hover:bg-slate-100 text-gray-800 border-2 border-slate-200';
-              
-              if (this.srsShowResult) {
-                if (option === correctAnswer) {
-                  btnClass = 'bg-emerald-500 text-white border-2 border-emerald-600';
-                } else if (option === this.srsSelectedAnswer && option !== correctAnswer) {
-                  btnClass = 'bg-red-500 text-white border-2 border-red-600';
-                } else {
-                  btnClass = 'bg-slate-200 text-slate-500 border-2 border-slate-300';
-                }
-              } else if (this.srsSelectedAnswer === option) {
-                btnClass = 'bg-blue-500 text-white border-2 border-blue-600';
-              }
-              
-              return `
-                <button data-srs-option="${idx}" class="w-full p-4 rounded-xl font-medium text-xl transition-all ${btnClass}" ${this.srsShowResult ? 'disabled' : ''}>
-                  ${option}
-                </button>
-              `;
-            }).join('')}
-          </div>
-          
-          <!-- Action Buttons -->
-          ${this.srsShowResult ? `
-            <button id="srsNextBtn" class="w-full py-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold text-lg rounded-xl">
-              ${this.srsCurrentIndex < this.srsWords.length - 1 ? 'Next Question →' : 'See Results'}
-            </button>
-          ` : `
-            <button id="srsSubmitBtn" class="w-full py-4 bg-emerald-500 text-white font-bold text-lg rounded-xl hover:bg-emerald-600 disabled:opacity-50" ${!this.srsSelectedAnswer ? 'disabled' : ''}>
-              Submit Answer
-            </button>
-          `}
-        `;
-      }
-      
-      renderSRSWritingQuestion(word) {
-        return `
-          <!-- Question: Meaning only -->
-          <div class="sentence-box rounded-2xl p-6 mb-4 min-h-[100px] flex flex-col items-center justify-center">
-            <p class="text-sm text-amber-700 mb-2">Write the kanji for:</p>
-            <p class="meaning-display text-amber-800 font-bold text-center">${word.meaning}</p>
-          </div>
-          
-          <!-- Writing Canvas -->
-          <div class="canvas-container mb-4">
-            <canvas id="writingCanvas" width="400" height="180"></canvas>
-            <div class="canvas-controls">
-              <button id="clearCanvasBtn" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1 rounded-lg text-sm font-medium">
-                🗑️ Clear
-              </button>
-            </div>
-            <div class="absolute bottom-2 left-3 text-slate-400 text-xs">✍️ Draw kanji here</div>
-          </div>
-          
-          <!-- Answer Reveal -->
-          ${this.srsShowResult ? `
-            <div class="bg-white rounded-2xl p-6 mb-4 text-center">
-              <p class="text-slate-500 text-sm mb-2">Correct Answer:</p>
-              <p class="text-2xl text-blue-600 mb-2">${word.hiragana}</p>
-              <p class="kanji-highlight">${word.kanji}</p>
-            </div>
-            
-            <div class="flex gap-3 mb-4">
-              <button id="srsMarkWrongBtn" class="flex-1 py-4 bg-red-500 text-white font-bold rounded-xl">
-                ✗ Wrong
-              </button>
-              <button id="srsMarkCorrectBtn" class="flex-1 py-4 bg-emerald-500 text-white font-bold rounded-xl">
-                ✓ Correct
-              </button>
-            </div>
-          ` : `
-            <button id="srsRevealWritingBtn" class="w-full py-4 bg-blue-500 text-white font-bold text-lg rounded-xl">
-              Reveal Answer
-            </button>
-          `}
-        `;
-      }
-      
-      renderSRSResults() {
-        const correct = this.srsAnswers.filter(a => a.correct).length;
-        const wrong = this.srsAnswers.filter(a => !a.correct).length;
-        const total = this.srsAnswers.length;
-        const percentage = total > 0 ? Math.round((correct / total) * 100) : 0;
-        
-        const wrongAnswers = this.srsAnswers.filter(a => !a.correct);
-        
-        return `
-          <div class="p-4 animate-fadeIn">
-            <div class="max-w-md mx-auto">
-              <!-- Score Card -->
-              <div class="bg-gradient-to-r from-blue-500 to-purple-500 rounded-2xl p-6 mb-4 text-white text-center">
-                <div class="text-6xl font-bold mb-2">${percentage}%</div>
-                <div class="text-xl mb-4">Test Complete!</div>
-                <div class="flex justify-center gap-8">
-                  <div>
-                    <div class="text-3xl font-bold">${correct}</div>
-                    <div class="text-sm opacity-80">Correct</div>
-                  </div>
-                  <div>
-                    <div class="text-3xl font-bold">${wrong}</div>
-                    <div class="text-sm opacity-80">Wrong</div>
-                  </div>
-                  <div>
-                    <div class="text-3xl font-bold">${total}</div>
-                    <div class="text-sm opacity-80">Total</div>
-                  </div>
-                </div>
-              </div>
-              
-              <!-- Wrong Answers Review -->
-              ${wrongAnswers.length > 0 ? `
-                <div class="bg-slate-800 rounded-xl p-4 mb-4">
-                  <h3 class="text-white font-bold mb-3">📝 Review Mistakes (${wrongAnswers.length})</h3>
-                  <div class="space-y-2 max-h-64 overflow-auto">
-                    ${wrongAnswers.map(a => {
-                      const levelColor = LEVEL_COLORS[a.word.level] || LEVEL_COLORS['ALL'];
-                      return `
-                        <div class="bg-slate-700 rounded-lg p-3">
-                          <div class="flex items-center gap-2 mb-1">
-                            <span class="px-2 py-0.5 ${levelColor.bg} text-white text-xs rounded">${a.word.level}</span>
-                            <span class="text-white font-bold">${a.word.kanji}</span>
-                            <span class="text-slate-400">${a.word.hiragana}</span>
-                          </div>
-                          <div class="text-slate-300 text-sm">${a.word.meaning}</div>
-                          ${a.userAnswer ? `
-                            <div class="mt-1 text-xs">
-                              <span class="text-red-400">Your answer: ${a.userAnswer}</span>
-                            </div>
-                          ` : ''}
-                        </div>
-                      `;
-                    }).join('')}
-                  </div>
-                </div>
-              ` : `
-                <div class="bg-emerald-800 rounded-xl p-4 mb-4 text-center">
-                  <div class="text-4xl mb-2">🎉</div>
-                  <p class="text-emerald-200">Perfect score! No mistakes!</p>
-                </div>
-              `}
-              
-              <!-- Action Buttons -->
-              <div class="space-y-3">
-                ${wrongAnswers.length > 0 ? `
-                  <button id="srsRetestWrongBtn" class="w-full py-4 bg-amber-500 text-white font-bold rounded-xl">
-                    🔄 Retest Wrong Answers (${wrongAnswers.length})
-                  </button>
-                ` : ''}
-                <button id="srsNewTestBtn" class="w-full py-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold rounded-xl">
-                  📝 New Test
-                </button>
-              </div>
-            </div>
-          </div>
-        `;
-      }
-      
-      // ===== SRS LOGIC =====
-      startSRSTest() {
-        // Get counts from inputs
-        this.srsConfig.n1Count = parseInt(document.getElementById('srsN1Count')?.value) || 0;
-        this.srsConfig.n2Count = parseInt(document.getElementById('srsN2Count')?.value) || 0;
-        this.srsConfig.n3Count = parseInt(document.getElementById('srsN3Count')?.value) || 0;
-        
-        // Sample words from each level
-        const n1Words = this.shuffleArray(this.getWordsByLevel('N1')).slice(0, this.srsConfig.n1Count);
-        const n2Words = this.shuffleArray(this.getWordsByLevel('N2')).slice(0, this.srsConfig.n2Count);
-        const n3Words = this.shuffleArray(this.getWordsByLevel('N3')).slice(0, this.srsConfig.n3Count);
-        
-        this.srsWords = this.shuffleArray([...n1Words, ...n2Words, ...n3Words]);
-        this.srsCurrentIndex = 0;
-        this.srsAnswers = [];
-        this.srsSelectedAnswer = null;
-        this.srsShowResult = false;
-        this.canvasImageData = null;
-        
-        // Generate options for first question
-        this.generateMCQOptions();
-        
-        this.srsView = 'test';
-        this.render();
-      }
-      
-      generateMCQOptions() {
-        if (this.srsWords.length === 0 || this.srsCurrentIndex >= this.srsWords.length) return;
-        
-        const currentWord = this.srsWords[this.srsCurrentIndex];
-        const isHiraganaToKanji = this.srsConfig.testType === 'hiragana_to_kanji';
-        const correctAnswer = isHiraganaToKanji ? currentWord.kanji : currentWord.hiragana;
-        
-        // Get wrong options from same level if possible
-        const sameLevel = this.vocabulary.filter(w => 
-          w.level === currentWord.level && 
-          (isHiraganaToKanji ? w.kanji : w.hiragana) !== correctAnswer
-        );
-        const otherWords = this.vocabulary.filter(w => 
-          w.level !== currentWord.level && 
-          (isHiraganaToKanji ? w.kanji : w.hiragana) !== correctAnswer
-        );
-        
-        const pool = [...this.shuffleArray(sameLevel).slice(0, 5), ...this.shuffleArray(otherWords).slice(0, 5)];
-        const wrongOptions = this.shuffleArray(pool)
-          .slice(0, 3)
-          .map(w => isHiraganaToKanji ? w.kanji : w.hiragana);
-        
-        this.srsOptions = this.shuffleArray([correctAnswer, ...wrongOptions]);
-      }
-      
-      selectSRSOption(idx) {
-        if (this.srsShowResult) return;
-        this.srsSelectedAnswer = this.srsOptions[idx];
-        this.render();
-      }
-      
-      submitSRSAnswer() {
-        if (!this.srsSelectedAnswer) return;
-        
-        const word = this.srsWords[this.srsCurrentIndex];
-        const isHiraganaToKanji = this.srsConfig.testType === 'hiragana_to_kanji';
-        const correctAnswer = isHiraganaToKanji ? word.kanji : word.hiragana;
-        const isCorrect = this.srsSelectedAnswer === correctAnswer;
-        
-        this.srsAnswers.push({
-          word: word,
-          correct: isCorrect,
-          userAnswer: this.srsSelectedAnswer,
-          correctAnswer: correctAnswer
-        });
-        
-        // Save to database if wrong
-        if (!isCorrect) {
-          this.saveSRSMistake(word, this.srsConfig.testType, this.srsSelectedAnswer);
-        }
-        
-        this.srsShowResult = true;
-        this.render();
-      }
-      
-      revealSRSWriting() {
-        this.srsShowResult = true;
-        this.saveCanvasData();
-        this.render();
-      }
-      
-      markSRSWritingResult(isCorrect) {
-        const word = this.srsWords[this.srsCurrentIndex];
-        
-        this.srsAnswers.push({
-          word: word,
-          correct: isCorrect,
-          userAnswer: null,
-          correctAnswer: word.kanji
-        });
-        
-        // Save to database if wrong
-        if (!isCorrect) {
-          this.saveSRSMistake(word, 'writing', null);
-        }
-        
-        this.srsNextQuestion();
-      }
-      
-      srsNextQuestion() {
-        this.srsSelectedAnswer = null;
-        this.srsShowResult = false;
-        this.canvasImageData = null;
-        
-        if (this.srsCurrentIndex < this.srsWords.length - 1) {
-          this.srsCurrentIndex++;
-          this.generateMCQOptions();
-          this.render();
-        } else {
-          // Show results
-          this.srsView = 'results';
-          this.render();
-        }
-      }
-      
-      retestWrongAnswers() {
-        const wrongWords = this.srsAnswers.filter(a => !a.correct).map(a => a.word);
-        this.srsWords = this.shuffleArray([...wrongWords]);
-        this.srsCurrentIndex = 0;
-        this.srsAnswers = [];
-        this.srsSelectedAnswer = null;
-        this.srsShowResult = false;
-        this.canvasImageData = null;
-        this.generateMCQOptions();
-        this.srsView = 'test';
-        this.render();
-      }
-      
-      resetSRS() {
-        this.srsView = 'setup';
-        this.srsWords = [];
-        this.srsCurrentIndex = 0;
-        this.srsAnswers = [];
-        this.srsSelectedAnswer = null;
-        this.srsShowResult = false;
-        this.canvasImageData = null;
-        this.render();
-      }
-      
-      async saveSRSMistake(word, testType, userAnswer) {
-        if (!this.user) return;
-        
-        try {
-          const { error } = await supabase
-            .from('japanese_daily_test_log')
-            .insert({
-              user_id: this.user.id,
-              kanji: word.kanji,
-              test_type: testType,
-              test_date: new Date().toISOString().split('T')[0],
-              is_correct: false,
-              rating: null,
-              created_at: new Date().toISOString()
-            });
-          
-          if (error) console.error('Save SRS mistake error:', error);
-        } catch (err) {
-          console.error('saveSRSMistake failed:', err);
-        }
       }
       
       // ===== STORIES TAB =====
@@ -2086,64 +1518,6 @@
           this.selectedSimilarGroup = null;
           this.render();
         });
-        
-        // ===== SRS EVENT LISTENERS =====
-        // SRS test type selection
-        document.querySelectorAll('[data-srs-test-type]').forEach(btn => {
-          btn.addEventListener('click', () => {
-            this.srsConfig.testType = btn.dataset.srsTestType;
-            this.render();
-          });
-        });
-        
-        // SRS word count inputs (update on change)
-        document.getElementById('srsN1Count')?.addEventListener('input', (e) => {
-          this.srsConfig.n1Count = parseInt(e.target.value) || 0;
-          // Update total display without full re-render
-          const total = this.srsConfig.n1Count + this.srsConfig.n2Count + this.srsConfig.n3Count;
-          const btn = document.getElementById('startSRSTestBtn');
-          if (btn) btn.disabled = total === 0;
-        });
-        document.getElementById('srsN2Count')?.addEventListener('input', (e) => {
-          this.srsConfig.n2Count = parseInt(e.target.value) || 0;
-          const total = this.srsConfig.n1Count + this.srsConfig.n2Count + this.srsConfig.n3Count;
-          const btn = document.getElementById('startSRSTestBtn');
-          if (btn) btn.disabled = total === 0;
-        });
-        document.getElementById('srsN3Count')?.addEventListener('input', (e) => {
-          this.srsConfig.n3Count = parseInt(e.target.value) || 0;
-          const total = this.srsConfig.n1Count + this.srsConfig.n2Count + this.srsConfig.n3Count;
-          const btn = document.getElementById('startSRSTestBtn');
-          if (btn) btn.disabled = total === 0;
-        });
-        
-        // Start SRS test
-        document.getElementById('startSRSTestBtn')?.addEventListener('click', () => this.startSRSTest());
-        
-        // SRS back/exit
-        document.getElementById('backToSRSSetupBtn')?.addEventListener('click', () => this.resetSRS());
-        
-        // SRS MCQ options
-        document.querySelectorAll('[data-srs-option]').forEach(btn => {
-          btn.addEventListener('click', () => this.selectSRSOption(parseInt(btn.dataset.srsOption)));
-        });
-        
-        // SRS submit answer
-        document.getElementById('srsSubmitBtn')?.addEventListener('click', () => this.submitSRSAnswer());
-        
-        // SRS next question
-        document.getElementById('srsNextBtn')?.addEventListener('click', () => this.srsNextQuestion());
-        
-        // SRS writing reveal
-        document.getElementById('srsRevealWritingBtn')?.addEventListener('click', () => this.revealSRSWriting());
-        
-        // SRS writing mark correct/wrong
-        document.getElementById('srsMarkCorrectBtn')?.addEventListener('click', () => this.markSRSWritingResult(true));
-        document.getElementById('srsMarkWrongBtn')?.addEventListener('click', () => this.markSRSWritingResult(false));
-        
-        // SRS results buttons
-        document.getElementById('srsRetestWrongBtn')?.addEventListener('click', () => this.retestWrongAnswers());
-        document.getElementById('srsNewTestBtn')?.addEventListener('click', () => this.resetSRS());
       }
     }
     
