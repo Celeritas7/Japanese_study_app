@@ -88,8 +88,6 @@
     const SUPABASE_URL = 'https://ulgrfumbwjovbjzjiems.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVsZ3JmdW1id2pvdmJqemppZW1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNzIyNjcsImV4cCI6MjA4Mjk0ODI2N30.ix5Vh4Y3GXNbQbzVtTD_WSko0L3cr5q_eCnTuDEMh7M';
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    // Store on window for reliable access in async callbacks
-    window.sb = supabase;
     
     // ===== LEVEL COLORS =====
     const LEVEL_COLORS = {
@@ -236,13 +234,12 @@
       
       async loadVocabulary() {
         try {
-          const sb = window.sb;
           let allData = [];
           let page = 0;
           const pageSize = 1000;
           
           while (true) {
-            const { data, error } = await sb
+            const { data, error } = await supabase
               .from('japanese_vocabulary')
               .select('*')
               .range(page * pageSize, (page + 1) * pageSize - 1)
@@ -272,28 +269,14 @@
       async loadMarkings() {
         if (!this.user) return;
         try {
-          const sb = window.sb;
-          let allData = [];
-          let page = 0;
-          const pageSize = 1000;
+          const { data, error } = await supabase
+            .from('japanese_user_markings')
+            .select('kanji, marking')
+            .eq('user_id', this.user.id);
           
-          while (true) {
-            const { data, error } = await sb
-              .from('japanese_user_markings')
-              .select('kanji, marking')
-              .eq('user_id', this.user.id)
-              .range(page * pageSize, (page + 1) * pageSize - 1);
-            
-            if (error) { console.error('Markings error:', error); break; }
-            if (!data || data.length === 0) break;
-            allData = allData.concat(data);
-            if (data.length < pageSize) break;
-            page++;
-          }
-          
+          if (error) { console.error('Markings error:', error); return; }
           this.markings = {};
-          allData.forEach(r => this.markings[r.kanji] = r.marking);
-          console.log(`Loaded ${allData.length} markings`);
+          (data || []).forEach(r => this.markings[r.kanji] = r.marking);
         } catch (err) {
           console.error('loadMarkings failed:', err);
           this.markings = {};
@@ -302,8 +285,7 @@
       
       async loadStoryGroups() {
         try {
-          const sb = window.sb;
-          const { data, error } = await sb
+          const { data, error } = await supabase
             .from('japanese_kanji_story_groups')
             .select('*')
             .order('group_number');
@@ -318,13 +300,12 @@
       
       async loadStories() {
         try {
-          const sb = window.sb;
           let allData = [];
           let page = 0;
           const pageSize = 1000;
           
           while (true) {
-            const { data, error } = await sb
+            const { data, error } = await supabase
               .from('japanese_kanji_stories')
               .select('*')
               .range(page * pageSize, (page + 1) * pageSize - 1)
@@ -346,8 +327,7 @@
       
       async loadSimilarGroups() {
         try {
-          const sb = window.sb;
-          const { data, error } = await sb
+          const { data, error } = await supabase
             .from('japanese_kanji_similar_groups')
             .select('*')
             .order('id');
@@ -420,30 +400,21 @@
         if (!this.user) return;
         
         try {
-          const sb = window.sb;
-          let result;
-          
           if (newMarking === 0) {
-            result = await sb.from('japanese_user_markings')
+            await supabase.from('japanese_user_markings')
               .delete()
               .eq('user_id', this.user.id)
               .eq('kanji', kanji);
           } else {
-            result = await sb.from('japanese_user_markings').upsert({
+            await supabase.from('japanese_user_markings').upsert({
               user_id: this.user.id,
               kanji: kanji,
               marking: newMarking,
               updated_at: new Date().toISOString()
             }, { onConflict: 'user_id,kanji' });
           }
-          
-          if (result.error) {
-            console.error('Update marking error:', result.error);
-            this.markings[kanji] = oldMarking;
-            this.render();
-          }
         } catch (err) {
-          console.error('Update marking exception:', err);
+          console.error('Update marking error:', err);
           this.markings[kanji] = oldMarking;
           this.render();
         }
@@ -1820,8 +1791,7 @@
         if (!this.user) return;
         
         try {
-          const sb = window.sb;
-          const { error } = await sb
+          const { error } = await supabase
             .from('japanese_daily_test_log')
             .insert({
               user_id: this.user.id,

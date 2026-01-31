@@ -236,13 +236,12 @@
       
       async loadVocabulary() {
         try {
-          const sb = window.sb;
           let allData = [];
           let page = 0;
           const pageSize = 1000;
           
           while (true) {
-            const { data, error } = await sb
+            const { data, error } = await supabase
               .from('japanese_vocabulary')
               .select('*')
               .range(page * pageSize, (page + 1) * pageSize - 1)
@@ -268,7 +267,7 @@
           this.vocabulary = [];
         }
       }
-      
+
       async loadMarkings() {
         if (!this.user) return;
         try {
@@ -299,11 +298,10 @@
           this.markings = {};
         }
       }
-      
+     
       async loadStoryGroups() {
         try {
-          const sb = window.sb;
-          const { data, error } = await sb
+          const { data, error } = await supabase
             .from('japanese_kanji_story_groups')
             .select('*')
             .order('group_number');
@@ -318,13 +316,12 @@
       
       async loadStories() {
         try {
-          const sb = window.sb;
           let allData = [];
           let page = 0;
           const pageSize = 1000;
           
           while (true) {
-            const { data, error } = await sb
+            const { data, error } = await supabase
               .from('japanese_kanji_stories')
               .select('*')
               .range(page * pageSize, (page + 1) * pageSize - 1)
@@ -346,8 +343,7 @@
       
       async loadSimilarGroups() {
         try {
-          const sb = window.sb;
-          const { data, error } = await sb
+          const { data, error } = await supabase
             .from('japanese_kanji_similar_groups')
             .select('*')
             .order('id');
