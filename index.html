@@ -88,8 +88,6 @@
     const SUPABASE_URL = 'https://ulgrfumbwjovbjzjiems.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVsZ3JmdW1id2pvdmJqemppZW1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNzIyNjcsImV4cCI6MjA4Mjk0ODI2N30.ix5Vh4Y3GXNbQbzVtTD_WSko0L3cr5q_eCnTuDEMh7M';
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    // Store on window for reliable access in async callbacks
-    window.sb = supabase;
     
     // ===== LEVEL COLORS =====
     const LEVEL_COLORS = {
@@ -402,30 +400,21 @@
         if (!this.user) return;
         
         try {
-          const sb = window.sb;
-          let result;
-          
           if (newMarking === 0) {
-            result = await sb.from('japanese_user_markings')
+            await supabase.from('japanese_user_markings')
               .delete()
               .eq('user_id', this.user.id)
               .eq('kanji', kanji);
           } else {
-            result = await sb.from('japanese_user_markings').upsert({
+            await supabase.from('japanese_user_markings').upsert({
               user_id: this.user.id,
               kanji: kanji,
               marking: newMarking,
               updated_at: new Date().toISOString()
             }, { onConflict: 'user_id,kanji' });
           }
-          
-          if (result.error) {
-            console.error('Update marking error:', result.error);
-            this.markings[kanji] = oldMarking;
-            this.render();
-          }
         } catch (err) {
-          console.error('Update marking exception:', err);
+          console.error('Update marking error:', err);
           this.markings[kanji] = oldMarking;
           this.render();
         }
@@ -1802,8 +1791,7 @@
         if (!this.user) return;
         
         try {
-          const sb = window.sb;
-          const { error } = await sb
+          const { error } = await supabase
             .from('japanese_daily_test_log')
             .insert({
               user_id: this.user.id,
