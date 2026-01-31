@@ -265,18 +265,32 @@
           this.vocabulary = [];
         }
       }
-      
+
       async loadMarkings() {
         if (!this.user) return;
         try {
-          const { data, error } = await supabase
-            .from('japanese_user_markings')
-            .select('kanji, marking')
-            .eq('user_id', this.user.id);
+          const sb = window.sb;
+          let allData = [];
+          let page = 0;
+          const pageSize = 1000;
           
-          if (error) { console.error('Markings error:', error); return; }
+          while (true) {
+            const { data, error } = await sb
+              .from('japanese_user_markings')
+              .select('kanji, marking')
+              .eq('user_id', this.user.id)
+              .range(page * pageSize, (page + 1) * pageSize - 1);
+            
+            if (error) { console.error('Markings error:', error); break; }
+            if (!data || data.length === 0) break;
+            allData = allData.concat(data);
+            if (data.length < pageSize) break;
+            page++;
+          }
+          
           this.markings = {};
-          (data || []).forEach(r => this.markings[r.kanji] = r.marking);
+          allData.forEach(r => this.markings[r.kanji] = r.marking);
+          console.log(`Loaded ${allData.length} markings`);
         } catch (err) {
           console.error('loadMarkings failed:', err);
           this.markings = {};
