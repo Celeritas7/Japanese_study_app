@@ -160,6 +160,7 @@
         this.selectedWeekDay = null;
         this.selectedCategory = null;
         this.selectedTestType = 'kanji'; // 'kanji', 'reading', 'writing'
+        this.studyWordLimit = 0; // 0 = no limit (all words)
         
         // Flashcard state
         this.studyWords = [];
@@ -170,6 +171,14 @@
         // Story state
         this.selectedStoryGroup = null;
         this.storyFilter = '';
+        this.storySearchMode = 'groups'; // 'groups' or 'kanji'
+        this.storySearchResults = []; // individual kanji matches
+        
+        // Story alert state
+        this.storyAlertTarget = null; // { kanji, groupKanji, source } 
+        this.storyAlertComment = '';
+        this.storyAlertType = 'incorrect'; // 'incorrect', 'incomplete', 'unclear'
+        this.storyAlertSaving = false;
         
         // Similar state
         this.selectedSimilarGroup = null;
@@ -184,7 +193,9 @@
           n1Count: 0,
           n2Count: 0,
           n3Count: 0,
-          testType: 'hiragana_to_kanji' // 'hiragana_to_kanji', 'kanji_to_hiragana', 'writing'
+          testType: 'hiragana_to_kanji', // 'hiragana_to_kanji', 'kanji_to_hiragana', 'writing'
+          selectionMode: 'level', // 'level' or 'marking'
+          markingCounts: { 1: 1, 2: 1, 3: 2, 4: 3, 5: 3 } // default distribution
         };
         this.srsWords = [];
         this.srsCurrentIndex = 0;
@@ -399,6 +410,14 @@
         return stats;
       }
       
+      getMarkingStats() {
+        const stats = {};
+        Object.keys(MARKING_CATEGORIES).forEach(k => {
+          stats[k] = this.vocabulary.filter(w => this.getMarking(w) === parseInt(k)).length;
+        });
+        return stats;
+      }
+      
       shuffleArray(arr) {
         const a = [...arr];
         for (let i = a.length - 1; i > 0; i--) {
@@ -486,11 +505,15 @@
       
       // ===== STUDY FLOW =====
       startStudyAll() {
+        // Read word limit from input
+        this.studyWordLimit = parseInt(document.getElementById('studyWordLimit')?.value) || 0;
         let words = this.getWordsByLevel(this.selectedLevel);
         if (this.selectedWeekDay && this.selectedWeekDay !== 'ALL') {
           words = words.filter(w => w.weekDayLabel === this.selectedWeekDay);
         }
-        this.studyWords = this.shuffleArray([...words]);
+        let shuffled = this.shuffleArray([...words]);
+        if (this.studyWordLimit > 0) shuffled = shuffled.slice(0, this.studyWordLimit);
+        this.studyWords = shuffled;
         this.currentIndex = 0;
         this.revealStep = 0;
         this.showContext = false;
@@ -499,11 +522,14 @@
       }
       
       startStudyFromList() {
+        this.studyWordLimit = parseInt(document.getElementById('studyWordLimit')?.value) || 0;
         let words = this.getWordsByLevelAndCategory(this.selectedLevel, this.selectedCategory);
         if (this.selectedWeekDay && this.selectedWeekDay !== 'ALL') {
           words = words.filter(w => w.weekDayLabel === this.selectedWeekDay);
         }
-        this.studyWords = this.shuffleArray([...words]);
+        let shuffled = this.shuffleArray([...words]);
+        if (this.studyWordLimit > 0) shuffled = shuffled.slice(0, this.studyWordLimit);
+        this.studyWords = shuffled;
         this.currentIndex = 0;
         this.revealStep = 0;
         this.showContext = false;
@@ -706,6 +732,7 @@
             </div>
           </div>
           ${this.renderStoryOverlay()}
+          ${this.renderStoryAlertForm()}
         `;
         
         this.attachEventListeners();
@@ -975,6 +1002,17 @@
                     return `<option value="${wd}">${wd} (${count} words)</option>`;
                   }).join('')}
                 </select>
+                
+                <!-- Word Limit -->
+                <div class="mt-4 flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
+                  <div class="flex-1">
+                    <div class="text-sm font-medium text-gray-700">Word Limit</div>
+                    <div class="text-xs text-gray-400">0 = study all words</div>
+                  </div>
+                  <input type="number" id="studyWordLimit" min="0" max="${stats.total}" value="${this.studyWordLimit}" 
+                    class="w-24 p-2 text-center border-2 border-slate-300 rounded-lg font-bold text-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    placeholder="0">
+                </div>
                 
                 <button id="startStudyBtn" class="w-full mt-4 py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-lg rounded-xl hover:opacity-90">
                   ▶ Start Study
@@ -1344,6 +1382,13 @@
         const n1Stats = this.getStatsByLevel('N1');
         const n2Stats = this.getStatsByLevel('N2');
         const n3Stats = this.getStatsByLevel('N3');
+        const markStats = this.getMarkingStats();
+        const isLevelMode = this.srsConfig.selectionMode === 'level';
+        const isMarkingMode = this.srsConfig.selectionMode === 'marking';
+        
+        const levelTotal = this.srsConfig.n1Count + this.srsConfig.n2Count + this.srsConfig.n3Count;
+        const markingTotal = Object.values(this.srsConfig.markingCounts).reduce((a, b) => a + b, 0);
+        const activeTotal = isLevelMode ? levelTotal : markingTotal;
         
         return `
           <div class="p-4 animate-fadeIn">
@@ -1388,43 +1433,60 @@
                 </div>
               </div>
               
-              <!-- Word Count Selection -->
+              <!-- Selection Mode Toggle -->
+              <div class="bg-slate-800 rounded-xl p-4 mb-4">
+                <h3 class="text-sm text-slate-400 mb-3">Word Selection Mode</h3>
+                <div class="grid grid-cols-2 gap-2">
+                  <button data-srs-sel-mode="level" class="p-3 rounded-xl text-center transition-all ${
+                    isLevelMode ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  }">
+                    <div class="text-lg font-bold mb-0.5">📊 By Level</div>
+                    <div class="text-xs opacity-70">N1 / N2 / N3 counts</div>
+                  </button>
+                  <button data-srs-sel-mode="marking" class="p-3 rounded-xl text-center transition-all ${
+                    isMarkingMode ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  }">
+                    <div class="text-lg font-bold mb-0.5">🎯 By Marking</div>
+                    <div class="text-xs opacity-70">Priority-weighted</div>
+                  </button>
+                </div>
+              </div>
+              
+              ${isLevelMode ? `
+              <!-- BY LEVEL MODE -->
               <div class="bg-white rounded-2xl p-5 shadow-xl mb-4">
                 <h3 class="text-sm font-medium text-gray-600 mb-4">Select word count per level</h3>
                 
-                <!-- N1 -->
                 <div class="flex items-center justify-between mb-4 p-3 bg-rose-50 rounded-xl">
                   <div class="flex items-center gap-3">
                     <div class="w-10 h-10 bg-rose-500 rounded-lg flex items-center justify-center text-white font-bold">N1</div>
                     <div>
                       <div class="font-medium text-gray-800">JLPT N1</div>
-                      <div class="text-xs text-gray-500">${n1Stats.total} words available</div>
+                      <div class="text-xs text-gray-500">${n1Stats.total} words</div>
                     </div>
                   </div>
                   <input type="number" id="srsN1Count" min="0" max="${n1Stats.total}" value="${this.srsConfig.n1Count}" 
                     class="w-20 p-2 text-center border-2 border-rose-300 rounded-lg font-bold text-lg focus:outline-none focus:ring-2 focus:ring-rose-500">
                 </div>
                 
-                <!-- N2 -->
                 <div class="flex items-center justify-between mb-4 p-3 bg-amber-50 rounded-xl">
                   <div class="flex items-center gap-3">
                     <div class="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center text-white font-bold">N2</div>
                     <div>
                       <div class="font-medium text-gray-800">JLPT N2</div>
-                      <div class="text-xs text-gray-500">${n2Stats.total} words available</div>
+                      <div class="text-xs text-gray-500">${n2Stats.total} words</div>
                     </div>
                   </div>
                   <input type="number" id="srsN2Count" min="0" max="${n2Stats.total}" value="${this.srsConfig.n2Count}" 
                     class="w-20 p-2 text-center border-2 border-amber-300 rounded-lg font-bold text-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
                 </div>
                 
-                <!-- N3 -->
                 <div class="flex items-center justify-between mb-4 p-3 bg-emerald-50 rounded-xl">
                   <div class="flex items-center gap-3">
                     <div class="w-10 h-10 bg-emerald-500 rounded-lg flex items-center justify-center text-white font-bold">N3</div>
                     <div>
                       <div class="font-medium text-gray-800">JLPT N3</div>
-                      <div class="text-xs text-gray-500">${n3Stats.total} words available</div>
+                      <div class="text-xs text-gray-500">${n3Stats.total} words</div>
                     </div>
                   </div>
                   <input type="number" id="srsN3Count" min="0" max="${n3Stats.total}" value="${this.srsConfig.n3Count}" 
@@ -1432,14 +1494,62 @@
                 </div>
                 
                 <div class="text-center text-gray-500 text-sm mb-4">
-                  Total: <span class="font-bold text-gray-800">${this.srsConfig.n1Count + this.srsConfig.n2Count + this.srsConfig.n3Count}</span> words
+                  Total: <span class="font-bold text-gray-800">${levelTotal}</span> words
                 </div>
                 
                 <button id="startSRSTestBtn" class="w-full py-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold text-lg rounded-xl hover:opacity-90 disabled:opacity-50"
-                  ${(this.srsConfig.n1Count + this.srsConfig.n2Count + this.srsConfig.n3Count) === 0 ? 'disabled' : ''}>
+                  ${levelTotal === 0 ? 'disabled' : ''}>
                   ▶ Start Test
                 </button>
               </div>
+              ` : `
+              <!-- BY MARKING MODE -->
+              <div class="bg-white rounded-2xl p-5 shadow-xl mb-4">
+                <h3 class="text-sm font-medium text-gray-600 mb-2">Words per marking category</h3>
+                <p class="text-xs text-gray-400 mb-4">Drawn from all levels based on their rating</p>
+                
+                ${[1, 2, 3, 4, 5].map(k => {
+                  const cat = MARKING_CATEGORIES[k];
+                  const available = markStats[k];
+                  const currentVal = this.srsConfig.markingCounts[k] || 0;
+                  return `
+                    <div class="flex items-center justify-between mb-3 p-3 ${cat.lightColor} rounded-xl">
+                      <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 ${cat.color} rounded-lg flex items-center justify-center text-white text-lg">${cat.icon}</div>
+                        <div>
+                          <div class="font-medium text-gray-800 text-sm">${cat.label}</div>
+                          <div class="text-xs text-gray-500">${available} words</div>
+                        </div>
+                      </div>
+                      <input type="number" id="srsMarkCount${k}" min="0" max="${available}" value="${currentVal}" 
+                        class="w-20 p-2 text-center border-2 ${cat.border} rounded-lg font-bold text-lg focus:outline-none focus:ring-2">
+                    </div>
+                  `;
+                }).join('')}
+                
+                <!-- Not Marked info row -->
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-xl mb-4 opacity-60">
+                  <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-gray-400 rounded-lg flex items-center justify-center text-white text-lg">○</div>
+                    <div>
+                      <div class="font-medium text-gray-600 text-sm">Not Marked</div>
+                      <div class="text-xs text-gray-400">${markStats[0]} words — rate these first!</div>
+                    </div>
+                  </div>
+                  <span class="text-gray-400 text-sm font-bold px-2">—</span>
+                </div>
+                
+                <div class="text-center text-gray-500 text-sm mb-4">
+                  Total: <span class="font-bold text-gray-800">${markingTotal}</span> words
+                  <span class="text-xs text-gray-400 block mt-1">Higher markings → words you struggle with most</span>
+                </div>
+                
+                <button id="startSRSTestBtn" class="w-full py-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold text-lg rounded-xl hover:opacity-90 disabled:opacity-50"
+                  ${markingTotal === 0 ? 'disabled' : ''}>
+                  ▶ Start Test
+                </button>
+              </div>
+              `}
             </div>
           </div>
         `;
@@ -1460,6 +1570,8 @@
         const word = this.srsWords[this.srsCurrentIndex];
         const levelColor = LEVEL_COLORS[word.level] || LEVEL_COLORS['ALL'];
         const progress = ((this.srsCurrentIndex + 1) / this.srsWords.length) * 100;
+        const wordMarking = this.getMarking(word);
+        const markInfo = MARKING_CATEGORIES[wordMarking] || MARKING_CATEGORIES[0];
         
         return `
           <div class="flex flex-col h-full">
@@ -1467,7 +1579,10 @@
             <header class="bg-slate-800 px-4 py-3 flex items-center justify-between">
               <button id="backToSRSSetupBtn" class="text-white hover:bg-slate-700 px-3 py-2 rounded-lg">← Exit</button>
               <div class="text-center">
-                <span class="px-2 py-1 ${levelColor.bg} text-white text-xs rounded font-bold">${word.level}</span>
+                <div class="flex items-center justify-center gap-1">
+                  <span class="px-2 py-1 ${levelColor.bg} text-white text-xs rounded font-bold">${word.level}</span>
+                  <span class="px-2 py-1 ${markInfo.color} text-white text-xs rounded font-bold">${markInfo.icon}</span>
+                </div>
                 <div class="text-slate-400 text-sm mt-1">${this.srsCurrentIndex + 1} / ${this.srsWords.length}</div>
               </div>
               <div class="text-right">
@@ -1613,6 +1728,16 @@
         
         const wrongAnswers = this.srsAnswers.filter(a => !a.correct);
         
+        // Marking breakdown
+        const markingBreakdown = {};
+        this.srsAnswers.forEach(a => {
+          const m = this.getMarking(a.word);
+          if (!markingBreakdown[m]) markingBreakdown[m] = { total: 0, correct: 0 };
+          markingBreakdown[m].total++;
+          if (a.correct) markingBreakdown[m].correct++;
+        });
+        const hasMarkingData = Object.keys(markingBreakdown).some(k => parseInt(k) > 0);
+        
         return `
           <div class="p-4 animate-fadeIn">
             <div class="max-w-md mx-auto">
@@ -1636,6 +1761,33 @@
                 </div>
               </div>
               
+              <!-- Marking Performance Breakdown -->
+              ${hasMarkingData ? `
+                <div class="bg-slate-800 rounded-xl p-4 mb-4">
+                  <h3 class="text-white font-bold mb-3">📊 Performance by Marking</h3>
+                  <div class="space-y-2">
+                    ${Object.entries(markingBreakdown).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).map(([k, v]) => {
+                      const cat = MARKING_CATEGORIES[parseInt(k)] || MARKING_CATEGORIES[0];
+                      const pct = v.total > 0 ? Math.round((v.correct / v.total) * 100) : 0;
+                      return `
+                        <div class="flex items-center gap-3 bg-slate-700/50 rounded-lg p-2">
+                          <div class="w-8 h-8 ${cat.color} rounded-lg flex items-center justify-center text-white text-sm">${cat.icon}</div>
+                          <div class="flex-1">
+                            <div class="flex items-center justify-between mb-1">
+                              <span class="text-slate-300 text-xs">${cat.label}</span>
+                              <span class="text-white text-xs font-bold">${v.correct}/${v.total} (${pct}%)</span>
+                            </div>
+                            <div class="bg-slate-600 rounded-full h-1.5 overflow-hidden">
+                              <div class="${pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-500' : 'bg-red-500'} h-full transition-all" style="width:${pct}%"></div>
+                            </div>
+                          </div>
+                        </div>
+                      `;
+                    }).join('')}
+                  </div>
+                </div>
+              ` : ''}
+              
               <!-- Wrong Answers Review -->
               ${wrongAnswers.length > 0 ? `
                 <div class="bg-slate-800 rounded-xl p-4 mb-4">
@@ -1643,11 +1795,14 @@
                   <div class="space-y-2 max-h-64 overflow-auto">
                     ${wrongAnswers.map(a => {
                       const levelColor = LEVEL_COLORS[a.word.level] || LEVEL_COLORS['ALL'];
+                      const wMark = this.getMarking(a.word);
+                      const wMarkInfo = MARKING_CATEGORIES[wMark] || MARKING_CATEGORIES[0];
                       return `
                         <div class="bg-slate-700 rounded-lg p-3">
                           <div class="flex items-center justify-between mb-1">
                             <div class="flex items-center gap-2">
                               <span class="px-2 py-0.5 ${levelColor.bg} text-white text-xs rounded">${a.word.level}</span>
+                              <span class="px-1.5 py-0.5 ${wMarkInfo.color} text-white text-[10px] rounded">${wMarkInfo.icon}</span>
                               <span class="text-white font-bold">${a.word.kanji}</span>
                               <span class="text-slate-400">${a.word.hiragana}</span>
                             </div>
@@ -1689,17 +1844,36 @@
       
       // ===== SRS LOGIC =====
       startSRSTest() {
-        // Get counts from inputs
-        this.srsConfig.n1Count = parseInt(document.getElementById('srsN1Count')?.value) || 0;
-        this.srsConfig.n2Count = parseInt(document.getElementById('srsN2Count')?.value) || 0;
-        this.srsConfig.n3Count = parseInt(document.getElementById('srsN3Count')?.value) || 0;
+        let allWords = [];
         
-        // Sample words from each level
-        const n1Words = this.shuffleArray(this.getWordsByLevel('N1')).slice(0, this.srsConfig.n1Count);
-        const n2Words = this.shuffleArray(this.getWordsByLevel('N2')).slice(0, this.srsConfig.n2Count);
-        const n3Words = this.shuffleArray(this.getWordsByLevel('N3')).slice(0, this.srsConfig.n3Count);
+        if (this.srsConfig.selectionMode === 'marking') {
+          // ===== BY MARKING MODE =====
+          // Read counts from marking inputs
+          for (let k = 1; k <= 5; k++) {
+            this.srsConfig.markingCounts[k] = parseInt(document.getElementById(`srsMarkCount${k}`)?.value) || 0;
+          }
+          
+          // Sample words from each marking category
+          for (let k = 1; k <= 5; k++) {
+            const count = this.srsConfig.markingCounts[k];
+            if (count <= 0) continue;
+            const pool = this.vocabulary.filter(w => this.getMarking(w) === k);
+            const sampled = this.shuffleArray(pool).slice(0, count);
+            allWords.push(...sampled);
+          }
+        } else {
+          // ===== BY LEVEL MODE =====
+          this.srsConfig.n1Count = parseInt(document.getElementById('srsN1Count')?.value) || 0;
+          this.srsConfig.n2Count = parseInt(document.getElementById('srsN2Count')?.value) || 0;
+          this.srsConfig.n3Count = parseInt(document.getElementById('srsN3Count')?.value) || 0;
+          
+          const n1Words = this.shuffleArray(this.getWordsByLevel('N1')).slice(0, this.srsConfig.n1Count);
+          const n2Words = this.shuffleArray(this.getWordsByLevel('N2')).slice(0, this.srsConfig.n2Count);
+          const n3Words = this.shuffleArray(this.getWordsByLevel('N3')).slice(0, this.srsConfig.n3Count);
+          allWords = [...n1Words, ...n2Words, ...n3Words];
+        }
         
-        this.srsWords = this.shuffleArray([...n1Words, ...n2Words, ...n3Words]);
+        this.srsWords = this.shuffleArray(allWords);
         this.srsCurrentIndex = 0;
         this.srsAnswers = [];
         this.srsSelectedAnswer = null;
@@ -1911,7 +2085,109 @@
       
       closeStoryOverlay() {
         this.storyOverlay = null;
+        this.storyAlertTarget = null;
         this.render();
+      }
+      
+      // ===== STORY ALERT SYSTEM =====
+      openStoryAlert(kanji, groupKanji, source) {
+        this.storyAlertTarget = { kanji, groupKanji, source };
+        this.storyAlertComment = '';
+        this.storyAlertType = 'incorrect';
+        this.storyAlertSaving = false;
+        this.render();
+      }
+      
+      closeStoryAlert() {
+        this.storyAlertTarget = null;
+        this.render();
+      }
+      
+      async submitStoryAlert() {
+        if (!this.storyAlertTarget || !this.user) return;
+        this.storyAlertSaving = true;
+        this.render();
+        
+        try {
+          const sb = window.sb;
+          const { error } = await sb.from('japanese_story_alerts').insert({
+            user_id: this.user.id,
+            kanji: this.storyAlertTarget.kanji,
+            group_kanji: this.storyAlertTarget.groupKanji || null,
+            alert_type: this.storyAlertType,
+            comment: this.storyAlertComment.trim(),
+            source: this.storyAlertTarget.source || 'overlay',
+            created_at: new Date().toISOString()
+          });
+          
+          if (error) {
+            console.error('Story alert save error:', error);
+            alert('Failed to save alert. The table may not exist yet — ask Aniket to create japanese_story_alerts table.');
+          } else {
+            this.storyAlertTarget = null;
+            this.render();
+            // Brief success indicator
+            const el = document.getElementById('storyAlertSuccessMsg');
+            if (el) el.style.display = 'block';
+          }
+        } catch (err) {
+          console.error('Story alert exception:', err);
+          alert('Error saving alert: ' + err.message);
+        }
+        this.storyAlertSaving = false;
+      }
+      
+      renderStoryAlertForm() {
+        if (!this.storyAlertTarget) return '';
+        const { kanji, groupKanji } = this.storyAlertTarget;
+        
+        return `
+          <div class="fixed inset-0 z-[200] bg-black/70 flex items-center justify-center p-4" id="storyAlertOverlayBg">
+            <div class="bg-slate-800 rounded-2xl p-5 w-full max-w-sm animate-slideIn border border-slate-600">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="text-white font-bold text-lg">⚠️ Flag Story Issue</h3>
+                <button id="closeStoryAlertBtn" class="text-slate-400 hover:text-white text-xl">✕</button>
+              </div>
+              
+              <div class="bg-slate-900 rounded-xl p-3 mb-4 flex items-center gap-3">
+                <span class="text-3xl font-bold text-white">${kanji}</span>
+                ${groupKanji ? `<span class="text-slate-500">in group</span><span class="text-purple-400 font-bold">${groupKanji}</span>` : ''}
+              </div>
+              
+              <!-- Alert Type -->
+              <div class="mb-4">
+                <label class="text-slate-400 text-xs block mb-2">Issue Type</label>
+                <div class="grid grid-cols-3 gap-2">
+                  ${[
+                    { key: 'incorrect', label: '❌ Wrong', desc: 'Story is wrong' },
+                    { key: 'incomplete', label: '📝 Incomplete', desc: 'Missing info' },
+                    { key: 'unclear', label: '❓ Unclear', desc: 'Hard to understand' },
+                  ].map(t => `
+                    <button data-alert-type="${t.key}" class="p-2 rounded-lg text-center transition-all text-xs ${
+                      this.storyAlertType === t.key 
+                        ? 'bg-amber-500 text-white' 
+                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    }">
+                      <div class="text-base mb-0.5">${t.label.split(' ')[0]}</div>
+                      <div class="opacity-70">${t.desc}</div>
+                    </button>
+                  `).join('')}
+                </div>
+              </div>
+              
+              <!-- Comment -->
+              <div class="mb-4">
+                <label class="text-slate-400 text-xs block mb-2">Comment (what needs fixing?)</label>
+                <textarea id="storyAlertCommentInput" rows="3" placeholder="e.g. Story says 'tree' but should be 'water'..."
+                  class="w-full bg-slate-900 text-white px-3 py-2 rounded-xl border border-slate-600 focus:border-amber-500 focus:outline-none text-sm resize-none">${this.storyAlertComment}</textarea>
+              </div>
+              
+              <button id="submitStoryAlertBtn" class="w-full py-3 bg-amber-500 text-white font-bold rounded-xl hover:bg-amber-600 disabled:opacity-50" ${this.storyAlertSaving ? 'disabled' : ''}>
+                ${this.storyAlertSaving ? 'Saving...' : '⚠️ Submit Alert'}
+              </button>
+            </div>
+          </div>
+        `;
       }
       
       storyGoGroup(groupKanji, highlightKanji) {
@@ -2040,7 +2316,10 @@
                 </div>
                 ${storyData.story ? `
                   <div class="bg-slate-900/60 rounded-lg p-3 border-l-3 border-amber-500" style="border-left:3px solid #f59e0b">
-                    <div class="text-amber-500 text-[10px] uppercase tracking-wider font-bold mb-1">Mnemonic Story</div>
+                    <div class="flex items-center justify-between mb-1">
+                      <div class="text-amber-500 text-[10px] uppercase tracking-wider font-bold">Mnemonic Story</div>
+                      <button data-flag-story="${storyData.kanji}" data-flag-group="${storyData.group_kanji || ''}" class="text-slate-500 hover:text-amber-400 text-xs px-2 py-0.5 rounded bg-slate-800 border border-slate-600 hover:border-amber-500 transition-all">⚠️ Flag</button>
+                    </div>
                     <div class="text-slate-200 text-sm leading-relaxed">${storyData.story}</div>
                   </div>
                 ` : ''}
@@ -2131,7 +2410,10 @@
                     ${m.kunyomi ? `<span class="text-emerald-400 text-xs">訓 ${m.kunyomi}</span>` : ''}
                   </div>
                   ${m.story ? `<div class="text-slate-400 text-xs leading-relaxed">${m.story}</div>` : ''}
-                  ${m.frame_number ? `<div class="text-slate-600 text-xs mt-1">#${m.frame_number}</div>` : ''}
+                  <div class="flex items-center justify-between mt-1">
+                    ${m.frame_number ? `<div class="text-slate-600 text-xs">#${m.frame_number}</div>` : '<div></div>'}
+                    <button data-flag-story="${m.kanji}" data-flag-group="${m.group_kanji || ''}" class="text-slate-600 hover:text-amber-400 text-[10px] px-1.5 py-0.5 rounded bg-slate-800/50 border border-slate-700 hover:border-amber-500 transition-all">⚠️ Flag</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2274,14 +2556,42 @@
       
       renderStoryList() {
         let groups = this.storyGroups;
+        const searchTerm = this.storyFilter;
         
-        if (this.storyFilter) {
-          const search = this.storyFilter.toLowerCase();
+        // Filter groups
+        if (searchTerm) {
+          const search = searchTerm.toLowerCase();
           groups = groups.filter(g => 
-            g.group_kanji?.includes(this.storyFilter) ||
+            g.group_kanji?.includes(searchTerm) ||
             g.group_meaning?.toLowerCase().includes(search)
           );
         }
+        
+        // Search individual kanji stories
+        let kanjiResults = [];
+        if (searchTerm && searchTerm.length > 0) {
+          const search = searchTerm.toLowerCase();
+          kanjiResults = this.stories.filter(s => 
+            s.kanji?.includes(searchTerm) ||
+            s.meaning?.toLowerCase().includes(search) ||
+            s.onyomi?.includes(searchTerm) ||
+            s.kunyomi?.includes(searchTerm)
+          ).slice(0, 30);
+        }
+        
+        // Also search vocabulary for word-level matches
+        let wordResults = [];
+        if (searchTerm && searchTerm.length > 0) {
+          const search = searchTerm.toLowerCase();
+          wordResults = this.vocabulary.filter(w =>
+            w.kanji?.includes(searchTerm) ||
+            w.hiragana?.includes(searchTerm) ||
+            w.meaning?.toLowerCase().includes(search)
+          ).slice(0, 20);
+        }
+        
+        const hasSearch = searchTerm && searchTerm.length > 0;
+        const showMode = hasSearch ? this.storySearchMode : 'groups';
         
         return `
           <div class="p-4 animate-fadeIn">
@@ -2290,24 +2600,100 @@
               <p class="opacity-80 text-sm">${this.storyGroups.length} groups • ${this.stories.length} stories</p>
             </div>
             
-            <div class="mb-4">
-              <input type="text" id="storySearchInput" placeholder="Search by kanji or meaning..." 
+            <!-- Search -->
+            <div class="mb-3">
+              <input type="text" id="storySearchInput" placeholder="Search kanji, word, reading, or meaning..." 
                 value="${this.storyFilter}"
                 class="w-full bg-slate-700 text-white px-4 py-3 rounded-xl border border-slate-600 focus:border-purple-500 focus:outline-none">
             </div>
             
-            <div class="grid grid-cols-3 gap-3">
-              ${groups.slice(0, 60).map(group => {
-                const count = this.stories.filter(s => s.group_kanji === group.group_kanji).length;
-                return `
-                  <button data-story-group="${group.group_kanji}" class="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition-all">
-                    <div class="text-2xl font-bold text-white mb-1">${group.group_kanji || '?'}</div>
-                    <div class="text-slate-400 text-xs">${count} kanji</div>
-                  </button>
-                `;
-              }).join('')}
-            </div>
-            ${groups.length > 60 ? `<p class="text-slate-500 text-center mt-4">+ ${groups.length - 60} more...</p>` : ''}
+            ${hasSearch ? `
+              <!-- Search mode toggle -->
+              <div class="flex gap-2 mb-4">
+                <button data-story-search-mode="groups" class="flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+                  showMode === 'groups' ? 'bg-purple-500 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                }">Groups (${groups.length})</button>
+                <button data-story-search-mode="kanji" class="flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+                  showMode === 'kanji' ? 'bg-purple-500 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                }">Kanji (${kanjiResults.length})</button>
+                <button data-story-search-mode="words" class="flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+                  showMode === 'words' ? 'bg-purple-500 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                }">Words (${wordResults.length})</button>
+              </div>
+            ` : ''}
+            
+            ${showMode === 'groups' ? `
+              <!-- Group results -->
+              <div class="grid grid-cols-3 gap-3">
+                ${groups.slice(0, 60).map(group => {
+                  const count = this.stories.filter(s => s.group_kanji === group.group_kanji).length;
+                  return `
+                    <button data-story-group="${group.group_kanji}" class="bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-center transition-all">
+                      <div class="text-2xl font-bold text-white mb-1">${group.group_kanji || '?'}</div>
+                      <div class="text-slate-400 text-xs">${count} kanji</div>
+                    </button>
+                  `;
+                }).join('')}
+              </div>
+              ${groups.length > 60 ? `<p class="text-slate-500 text-center mt-4">+ ${groups.length - 60} more...</p>` : ''}
+              ${hasSearch && groups.length === 0 ? '<p class="text-slate-500 text-center py-4">No matching groups</p>' : ''}
+            ` : ''}
+            
+            ${showMode === 'kanji' ? `
+              <!-- Individual kanji results -->
+              <div class="space-y-2">
+                ${kanjiResults.length === 0 ? '<p class="text-slate-500 text-center py-4">No matching kanji stories</p>' : ''}
+                ${kanjiResults.map(s => {
+                  const group = this.storyGroups.find(g => g.group_kanji === s.group_kanji);
+                  return `
+                    <div class="bg-slate-800 rounded-xl p-3">
+                      <div class="flex items-start gap-3">
+                        <div class="text-3xl font-bold text-white w-12 text-center flex-shrink-0">${s.kanji}</div>
+                        <div class="flex-1 min-w-0">
+                          <div class="text-amber-300 font-semibold text-sm">${s.meaning || ''}</div>
+                          <div class="flex gap-3 text-xs mt-0.5">
+                            ${s.onyomi ? `<span class="text-purple-400">音 ${s.onyomi}</span>` : ''}
+                            ${s.kunyomi ? `<span class="text-emerald-400">訓 ${s.kunyomi}</span>` : ''}
+                          </div>
+                          ${s.story ? `<div class="text-slate-400 text-xs mt-1 leading-relaxed line-clamp-2" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${s.story}</div>` : ''}
+                        </div>
+                        ${group ? `
+                          <button data-story-group="${s.group_kanji}" class="flex-shrink-0 bg-purple-500/20 border border-purple-500/40 rounded-lg px-2 py-1.5 text-center hover:bg-purple-500/30 transition-all">
+                            <div class="text-lg font-bold text-purple-300">${s.group_kanji}</div>
+                            <div class="text-[9px] text-purple-400">group</div>
+                          </button>
+                        ` : ''}
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            ` : ''}
+            
+            ${showMode === 'words' ? `
+              <!-- Word results (open story overlay) -->
+              <div class="space-y-2">
+                ${wordResults.length === 0 ? '<p class="text-slate-500 text-center py-4">No matching words</p>' : ''}
+                ${wordResults.map(w => {
+                  const kanjiChars = [...(w.kanji || '')].filter(c => /[\u4e00-\u9faf]/.test(c));
+                  const hasStory = kanjiChars.some(k => this.stories.find(s => s.kanji === k));
+                  return `
+                    <div class="bg-slate-800 rounded-xl p-3 flex items-center justify-between">
+                      <div class="flex items-center gap-3">
+                        <span class="text-xl font-bold text-white">${w.kanji}</span>
+                        <span class="text-slate-400 text-sm">${w.hiragana || ''}</span>
+                        <span class="text-amber-300 text-xs">${w.meaning || ''}</span>
+                      </div>
+                      ${hasStory ? `
+                        <button data-open-story="${(w.kanji || '').replace(/'/g, "\\'")}" data-story-hiragana="${w.hiragana || ''}" data-story-meaning="${(w.meaning || '').replace(/'/g, "\\'")}" class="text-purple-400 hover:text-purple-300 text-xs px-2.5 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/30 font-semibold flex-shrink-0">📖 Story</button>
+                      ` : `
+                        <span class="text-slate-600 text-xs px-2 py-1">no story</span>
+                      `}
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            ` : ''}
           </div>
         `;
       }
@@ -2341,6 +2727,10 @@
                   </div>
                   <div class="text-amber-300 font-semibold mb-2">${story.meaning || ''}</div>
                   <div class="text-slate-300 text-sm leading-relaxed">${story.story || ''}</div>
+                  <div class="flex items-center justify-between mt-2">
+                    <div></div>
+                    <button data-flag-story="${story.kanji}" data-flag-group="${story.group_kanji || ''}" class="text-slate-500 hover:text-amber-400 text-xs px-2 py-0.5 rounded bg-slate-700 border border-slate-600 hover:border-amber-500 transition-all">⚠️ Flag Issue</button>
+                  </div>
                 </div>
               `).join('')}
             </div>
@@ -2509,6 +2899,7 @@
         // Story
         document.getElementById('storySearchInput')?.addEventListener('input', (e) => {
           this.storyFilter = e.target.value;
+          if (!e.target.value) this.storySearchMode = 'groups';
           this.render();
         });
         document.querySelectorAll('[data-story-group]').forEach(btn => {
@@ -2553,10 +2944,17 @@
           });
         });
         
-        // SRS word count inputs (update on change)
+        // SRS selection mode toggle
+        document.querySelectorAll('[data-srs-sel-mode]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            this.srsConfig.selectionMode = btn.dataset.srsSelMode;
+            this.render();
+          });
+        });
+        
+        // SRS word count inputs — Level mode
         document.getElementById('srsN1Count')?.addEventListener('input', (e) => {
           this.srsConfig.n1Count = parseInt(e.target.value) || 0;
-          // Update total display without full re-render
           const total = this.srsConfig.n1Count + this.srsConfig.n2Count + this.srsConfig.n3Count;
           const btn = document.getElementById('startSRSTestBtn');
           if (btn) btn.disabled = total === 0;
@@ -2573,6 +2971,16 @@
           const btn = document.getElementById('startSRSTestBtn');
           if (btn) btn.disabled = total === 0;
         });
+        
+        // SRS word count inputs — Marking mode
+        for (let k = 1; k <= 5; k++) {
+          document.getElementById(`srsMarkCount${k}`)?.addEventListener('input', (e) => {
+            this.srsConfig.markingCounts[k] = parseInt(e.target.value) || 0;
+            const total = Object.values(this.srsConfig.markingCounts).reduce((a, b) => a + b, 0);
+            const btn = document.getElementById('startSRSTestBtn');
+            if (btn) btn.disabled = total === 0;
+          });
+        }
         
         // Start SRS test
         document.getElementById('startSRSTestBtn')?.addEventListener('click', () => this.startSRSTest());
@@ -2636,6 +3044,39 @@
         
         // Story back to breakdown from group
         document.getElementById('storyBackToBreakdownBtn')?.addEventListener('click', () => this.storyBackToBreakdown());
+        
+        // ===== STORY SEARCH MODE TOGGLE =====
+        document.querySelectorAll('[data-story-search-mode]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            this.storySearchMode = btn.dataset.storySearchMode;
+            this.render();
+          });
+        });
+        
+        // ===== STORY ALERT LISTENERS =====
+        // Flag buttons (in overlay and story tab)
+        document.querySelectorAll('[data-flag-story]').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.openStoryAlert(btn.dataset.flagStory, btn.dataset.flagGroup || '', 'overlay');
+          });
+        });
+        
+        // Alert form
+        document.getElementById('closeStoryAlertBtn')?.addEventListener('click', () => this.closeStoryAlert());
+        document.getElementById('storyAlertOverlayBg')?.addEventListener('click', (e) => {
+          if (e.target.id === 'storyAlertOverlayBg') this.closeStoryAlert();
+        });
+        document.querySelectorAll('[data-alert-type]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            this.storyAlertType = btn.dataset.alertType;
+            this.render();
+          });
+        });
+        document.getElementById('storyAlertCommentInput')?.addEventListener('input', (e) => {
+          this.storyAlertComment = e.target.value;
+        });
+        document.getElementById('submitStoryAlertBtn')?.addEventListener('click', () => this.submitStoryAlert());
       }
     }
     
